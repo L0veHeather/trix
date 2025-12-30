@@ -21,11 +21,9 @@ from typing import TYPE_CHECKING, Any
 from trix.plugins.base import ScanPhase
 from trix.plugins.registry import PluginRegistry, get_plugin_registry
 from trix.engine.event_bus import EventBus, Event, EventType, get_event_bus
-from trix.engine.phase_manager import PhaseManager, PhaseConfig
+from trix.models.phase import PhaseConfig
 from trix.engine.result_collector import ResultCollector
 from trix.engine.scan_task import ScanTask, TaskType, TaskPriority
-from trix.engine.task_queue import DynamicTaskQueue
-from trix.brain.llm_judge import LLMJudge
 from trix.engine.task_queue import DynamicTaskQueue
 from trix.brain.llm_judge import LLMJudge
 from trix.brain.openai_judge import OpenAIJudge
@@ -134,7 +132,7 @@ class ScanEngine:
     
     The engine manages the complete lifecycle of a scan:
     1. Initialization and validation
-    2. Phase orchestration through PhaseManager
+    2. AI-driven task loop orchestration via ScanController
     3. Result collection and aggregation
     4. Event distribution for UI updates
     5. Export and reporting
@@ -167,7 +165,7 @@ class ScanEngine:
         
         self._scans: dict[str, ScanState] = {}
         self._collectors: dict[str, ResultCollector] = {}
-        self._phase_managers: dict[str, PhaseManager] = {}
+        self._scan_controllers: dict[str, Any] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         
         # Dynamic task queue support
@@ -242,21 +240,8 @@ class ScanEngine:
         # Create result collector
         collector = ResultCollector(scan_id, config.target)
         self._collectors[scan_id] = collector
-        
-        # Create phase manager
-        phase_manager = PhaseManager(self._registry, self._event_bus, llm_judge=self._llm_judge)
-        
-        # Configure phases based on scan config
-        for phase in config.phases:
-            phase_config = PhaseConfig(
-                phase=phase,
-                plugins=config.plugins if config.plugins else [],
-                continue_on_error=config.continue_on_error,
-                parameters=config.plugin_params,
-            )
-            phase_manager.set_phase_config(phase_config)
-        
-        self._phase_managers[scan_id] = phase_manager
+        # PhaseManager is no longer used, AI-Native flow handles orchestration via ScanController
+        pass
         
         # Initialize dynamic task queue
         task_queue = DynamicTaskQueue()
@@ -461,13 +446,6 @@ class ScanEngine:
         tasks_completed = 0
         
         try:
-            # Initialize shared executor for this scan
-            from trix.core.concurrent_executor import ConcurrentExecutor
-            
-            # Manual context management to avoid re-indenting the whole loop
-            # ### [DEPRECATED] LEGACY FLOW ###
-            # executor = ConcurrentExecutor(max_concurrent=10)
-            # await executor.__aenter__()
             executor = None  # Safely disable legacy executor
 
             # Initialize AI Controller
@@ -543,9 +521,7 @@ class ScanEngine:
                     # Execute task
                     result, new_tasks = await self._execute_task(
                         task=scan_task,
-                        phase_manager=phase_manager,
                         default_target=config.target,
-                        executor=executor,
                         scan_controller=scan_controller,
                     )
                     
@@ -572,8 +548,6 @@ class ScanEngine:
                         )
                         
                         # Collect findings
-                        # ### [DEPRECATED] LEGACY FLOW ###
-                        # Findings collected here come from direct plugin execution events, not AI Judge
                         collector.add_findings(result.findings)
                         collector.mark_phase_completed(result.phase)
                         
@@ -686,16 +660,17 @@ class ScanEngine:
     async def _execute_task(
         self,
         task: ScanTask,
-        phase_manager: PhaseManager,
         default_target: str,
-        executor: Any = None,
         scan_controller: ScanController | None = None,
-    ) -> tuple[Any, list[ScanTask]]:
-        """Execute a single task and return result + new tasks.
+    ) -> tuple[PhaseResult | None, list[ScanTask]]:
+        """Execute a single task and return result + new tasks."""
+        if not scan_controller:
+            return None, []
         
-        Returns:
-            Tuple of (PhaseResult or None, list of new ScanTasks)
-        """
+        phase = task.phase
+        # Use provided target or default to scan root target
+        target_url = task.target or default_target
+        
         import time
         import traceback
         
@@ -802,6 +777,7 @@ class ScanEngine:
                         finding.url = finding.target
                     
                     # 1. Store in ResultCollector (Semantic Deduplication applied here)
+                    logger.info(f"[🔮TRACER] 5. ✅ Vulnerability Confirmed & Stored! Type={finding.vuln_type}, Target={finding.target}")
                     collector.add_finding(finding)
                     
                     # 2. Emit Event for UI/Frontend
@@ -823,7 +799,7 @@ class ScanEngine:
                 # === [END NEW FLOW] ===
                 
                 # Construct PhaseResult manually from AI findings
-                from trix.engine.phase_manager import PhaseResult, PhaseStatus
+                from trix.models.phase import PhaseResult, PhaseStatus
                 result = PhaseResult(
                     phase=phase,
                     status=PhaseStatus.COMPLETED,
@@ -832,13 +808,7 @@ class ScanEngine:
                     findings=findings
                 )
 
-                # ### [DEPRECATED] LEGACY FLOW ###
-                # result = await phase_manager.execute_phase(
-                #     phase,
-                #     task.target,
-                #     task.scan_id,
-                # )            
-                # raise NotImplementedError("Legacy flow disabled")
+
                 
                 # Bridge: Extract AI verification tasks
                 if hasattr(result, 'verification_tasks') and result.verification_tasks:

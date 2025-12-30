@@ -1,127 +1,111 @@
 # 🐯trix (Tiger-Strix)
 
-> **Next-Generation Deterministic & Plugin-Based DAST Engine**
+> **Next-Generation AI-Native DAST Engine with Deterministic Orchestration**
 
-🐯trix is a complete evolution of the original Strix security agent. We have abandoned uncontrollable agent loops and heavy Docker dependencies to build a **stable, fast, and infinitely extensible** modern security scanning platform.
+🐯trix is a powerful, modern dynamic application security testing (DAST) platform. It replaces uncontrollable agent loops with a **deterministic phase-based orchestrator** and leverages an **AI-Native Feedback Loop** for surgical precision in vulnerability detection.
 
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
-![Python](https://img.shields.io/badge/python-3.10+-yellow)
-![Frontend](https://img.shields.io/badge/frontend-React%20%7C%20Tauri-cyan)
+![Architecture](https://img.shields.io/badge/architecture-Controller--Brain-orange)
+![UI](https://img.shields.io/badge/interface-React%20%7C%20Tauri-cyan)
 
 ---
 
-## 🚀 Core Philosophy: Why 🐯trix?
+## 🚀 The AI-Native Revolution
 
-| Feature | 🐯trix (New Architecture) | Traditional Autonamous Agents |
-|---------|---------------------------|-------------------------------|
-| **Stability** | ✅ **100% Deterministic** State Machine | ❌ Prone to infinite loops & non-reproducible results |
-| **Runtime** | ✅ **Native Processes** (Zero Docker) | ❌ Complex Docker-in-Docker setup |
-| **AI Role** | ✅ **Analysis & Advice** (Co-pilot) | ❌ Full Control (Prone to hallucinations) |
-| **Extensibility** | ✅ **Open Plugin System** (Web UI + Python) | ❌ Hard to modify core code |
-| **Performance** | ✅ **Blazing Fast Local Execution** | ❌ Slow container startup & high resource usage |
+Tiger-Strix is built on the philosophy that AI should be a **Super Analyst**, not a black-box controller.
+
+- **Deterministic Flow**: Security phases (Recon -> Enum -> Scan -> Verify) are controlled by code, ensuring 100% coverage.
+- **AI Feedback Loop**: When the AI suspects a vulnerability (50-80% confidence), it autonomously generates and tests mutations to confirm or reject findings.
+- **Zero Hallucination**: Every finding comes with a raw HTTP PoC and grounded reasoning.
 
 ---
 
-## 🌟 Key Features
+## 🛠️ One-Click Experience
 
-### 1. 🎯 Deterministic Phase Machine
-Instead of letting an LLM "decide what to do next", 🐯trix uses a strict code-controlled flow to ensure coverage:
-- **Reconnaissance**: Asset discovery
-- **Enumeration**: Parameter & path expansion
-- **Vulnerability Scan**: Plugin execution
-- **Validation**: PoC verification
+Forget complex setup. Tiger-Strix is designed to run natively and configure visually.
 
-### 2. 🔌 Dual-Mode Plugin System
-Infinitely extensible capabilities with two ways to add tools:
-- **Web UI (No Code)**: Simply fill in a command template (e.g., `nmap -sV {target}`) in the frontend. The LLM automatically decides when to use it based on context.
-- **Python (Advanced)**: Write Python classes for complex vulnerability parsing and logic control.
-
-### 3. 🧠 LLM-Augmented Analysis
-The LLM (e.g., GPT-4, Claude) serves as a **Super Analyst**, not a controller:
-- Analyzes hidden parameters in HTTP responses
-- Generates targeted payloads
-- Explains findings and suggests remediation
-
-### 4. 💻 Modern Interface
-- **Web UI**: Beautiful React + Tailwind dashboard
-- **Real-time**: WebSocket-based live logs and progress
-- **Management**: Full scan history and report management
-
----
-
-## 🛠️ Quick Start
-
-### Prerequisites
-- **Python**: 3.10+
-- **Node.js**: 18+ (for frontend)
-- **Go**: (Optional, for tools like nuclei)
-
-### Install & Run
-
+### 1. Launch
 ```bash
-# 1. Clone the repository
 git clone https://github.com/your-repo/trix.git
 cd trix
-
-# 2. Start (Auto-installs dependencies)
 ./start.sh
 ```
+*This starts the Backend Engine (:8000) and the Web Dashboard (:5173) automatically.*
 
-Open Web UI: `http://localhost:5173`
+### 2. Configure via UI
+No need to manually `export` environment variables. Open the Web UI and go to **Settings**:
+- **Select Provider**: Choose from OpenAI, Anthropic, DeepSeek, or local models (Ollama/vLLM).
+- **Manage Keys**: Enter your API keys directly in the dashboard. Settings are persisted in the local database.
+- **Pick your Model**: Instantly switch between models like `gpt-4o-mini`, `claude-3-5-sonnet`, or `deepseek-chat`.
 
 ---
 
-## 🔌 Adding Custom Plugins
+## 🎨 Web UI: No-Code Power for Security Ops
 
-The plugin system is the heart of 🐯trix.
+The Tiger-Strix dashboard is more than a display—it's a **Plugin IDE**:
 
-### Method 1: Via Frontend UI (Recommended - No Code)
+### ⚡ Add Tools via UI (No Code)
+Found a new CLI scanner or want to integrate `nikto`/`nuclei`?
+1. Navigate to the **Plugins** page.
+2. Click **Add Custom Plugin**.
+3. Fill in the command template: `nuclei -u {target} -t cves/`
+4. Assign it to a phase (e.g., Vulnerability Scan).
+5. **Done.** The AI Brain will now automatically analyze its output during subsequent scans.
 
-Perfect for quickly integrating CLI tools:
-1. Go to **Plugins** page in Web UI
-2. Click **Add Custom Plugin**
-3. Fill in command (e.g., `nikto -host {target}`)
-4. Select **Capabilities** and **Phases**
-5. **Instant activation**, no restart required!
+### 📈 Real-time Workspace
+- **Tracer Logs**: Watch the AI's internal reasoning process in real-time.
+- **Vulnerability Cards**: Click any finding to see the raw request/response, risk analysis, and remediation steps.
+- **Dynamic Task Queue**: See exactly which parameters and paths are currently being tested.
 
-### Method 2: Python Plugin (Advanced)
+---
 
-For deep integration:
+## 🔌 Developer Extension (Low Code)
+
+For deep integration, write Python-native plugins by inheriting `BaseVulnPlugin`.
 
 ```python
-# plugins/my-scanner/plugin.py
-from strix.plugins.base import BasePlugin, PluginEvent, ScanPhase
+# trix/plugins/vulns/custom_xss.py
+from trix.plugins.vulns import BaseVulnPlugin, PayloadContext, PayloadSpec
 
-class MyScanner(BasePlugin):
-    name = "my-scanner"
-    phases = [ScanPhase.VULNERABILITY_SCAN]
-    
-    async def execute(self, target: str, phase: ScanPhase, params: dict):
-        yield PluginEvent(event_type="STARTED", message=f"Scanning {target}")
-        # ... logic ...
+class CustomXSS(BaseVulnPlugin):
+    name = "xss_advanced"
+    vuln_type = "xss"
+
+    def generate_payloads(self, context: PayloadContext) -> list[PayloadSpec]:
+        """Plugin only generates; AI Brain judges."""
+        return [PayloadSpec(payload="<svg/onload=alert(1)>", description="SVG vector")]
 ```
 
 ---
 
-## 🏗️ Architecture Overview
+## 🔍 Detection Pipeline & Underlying Tools
 
-```
-🐯trix
-├── 🖥️ Desktop (Frontend)    # React + Tauri, User Interface
-├── 🔌 Plugins               # Independent Security Tools (Nuclei, SQLMap, Custom...)
-├── 🧠 Engine (Core)         # Deterministic State Machine
-│   ├── Phase Manager        # Flow Control
-│   ├── Event Bus            # Real-time Messaging
-│   └── Scan Controller      # Task Scheduling
-└── 💾 Storage               # SQLite Persistence
-```
+Tiger-Strix orchestrates a multi-layered security pipeline. While the **Brain** handles the "thinking", we use industry-standard tools for the "heavy lifting".
+
+### 1. The Detection Workflow
+1.  **Node 1: AI-Enhanced Reconnaissance**: `urlfinder` performs deep passive discovery of endpoints. Trix then uses **AI API Analysis** to infer hidden API structures (e.g., predicting `/api/v1/admin` based on `/api/v1/user`).
+2.  **Node 2: Intelligent Sensitivity Analysis**: Instead of simple pattern matching, Trix analyzes discovered URLs for sensitive exposures (keys, tokens, configs) using a combination of heuristics and **LLM Judgment**.
+3.  **Node 3: Targeted Payload Gen**: Plugins (e.g., `sqli_detector`, `idor_detector`) generate payloads tailored to the detected tech stack and the specific parameters identified.
+4.  **Node 4: AI Audit**: Every HTTP response is fed into the **LLM Judge**. It analyzes headers, status codes, and DOM changes to detect subtle vulnerabilities (like Blind SQLi or IDOR).
+5.  **Node 5: Autonomous Feedback Loop**: If a potential vulnerability is found with uncertain confidence (50-80%), the **Recursive Feedback Loop** autonomously generates and executes verification tasks.
+
+### 2. Core Integrated Tools
+Tiger-Strix focuses on high-precision tools integrated into the AI workflow:
+- **URLFinder-x**: Deep endpoint and link discovery from JS, HTML, and API responses.
+- **Nuclei**: Advanced template-based scanning for known CVEs and misconfigurations.
+- **Katana / HTTPX**: Industry-standard crawling and probing engines.
+- **AI-Driven Logic**: Custom LLM agents for parameter guessing, WAF bypass, and vulnerability judgment.
 
 ---
 
-## 🤝 Contributing
+## 🏗️ Technical Architecture
 
-Pull Requests are welcome! Whether it's a new plugin, UI improvement, or core optimization.
+- **`trix/core/`**: The `ScanController` (Deterministic logic & Concurrency).
+- **`trix/brain/`**: The LLM interface and retry mechanisms.
+- **`trix/server/`**: FastAPI backend with WebSocket progress updates.
+- **`desktop/`**: Modern React + Tailwind + Vite/Tauri frontend.
+
+---
 
 ## 📄 License
-
-Apache 2.0 License
+Apache 2.0

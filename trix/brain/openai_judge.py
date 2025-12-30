@@ -11,6 +11,7 @@ import os
 from typing import Any
 
 import litellm
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from trix.brain.llm_judge import LLMJudge
 from trix.models.finding import ConfidenceLevel, RiskLevel, VulnFinding
@@ -65,6 +66,11 @@ class OpenAIJudge(LLMJudge):
         if self.api_key:
             litellm.api_key = self.api_key
     
+    @retry(
+        stop=stop_after_attempt(3), 
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True
+    )
     async def judge(self, request: JudgmentRequest) -> JudgmentResult:
         """Execute LLM judgment on a single request."""
         

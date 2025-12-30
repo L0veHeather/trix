@@ -335,7 +335,9 @@ class ScanController:
             
             # 3. Submit to LLM
             self.stats["llm_calls"] += 1
+            logger.info(f"[🔮TRACER] 1. Sending Payload to LLM Judge: {payload_spec.payload[:30]}...")
             judgment_result = await self.llm_judge.judge(judgment_request)
+            logger.info(f"[🔮TRACER] 2. LLM Verdict: Confidence={judgment_result.confidence_score:.0%}, Risk={judgment_result.risk_level}")
             
             # 4. [NEW] Feedback Loop - Check if confidence is uncertain
             finding = await self._process_judgment_with_feedback(
@@ -458,6 +460,7 @@ class ScanController:
         
         if new_verification_task:
             # Add to queue based on priority
+            logger.info(f"[🔮TRACER] 3. ⚠️ Triggering Feedback Loop! Confidence is UNCERTAIN. Queueing VerificationTask...")
             self._add_verification_task(new_verification_task)
             self._verification_attempts[chain_id] = current_attempts + 1
             self.stats["verification_tasks_generated"] += 1
@@ -496,6 +499,7 @@ class ScanController:
         while self._verification_queue:
             task = self._verification_queue.popleft()
             
+            logger.info(f"[🔮TRACER] 4. 🔄 Executing Verification Task: {task.task_id}")
             logger.info(f"[*] Processing verification task {task.task_id} (depth: {task.depth})")
             
             # Create a PayloadSpec from the verification task

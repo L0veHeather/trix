@@ -1,127 +1,111 @@
 # 🐯trix (Tiger-Strix)
 
-> **下一代确定性、插件化 DAST 安全扫描引擎**
+> **下一代 AI 原生确定性 DAST 扫描引擎**
 
-🐯trix 是对原版 Strix 的彻底重构与进化。我们摒弃了不可控的代理循环和沉重的 Docker 依赖，打造了一个**稳定、快速、极易扩展**的现代化安全扫描平台。
+🐯trix 是一款强大的现代化动态应用安全测试 (DAST) 平台。它用**确定性的阶段化编排逻辑**取代了不可控的 Agent 循环，并利用 **AI 原生反馈闭环 (Feedback Loop)** 实现了对手术刀级别的漏洞检测精度。
 
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
-![Python](https://img.shields.io/badge/python-3.10+-yellow)
-![Frontend](https://img.shields.io/badge/frontend-React%20%7C%20Tauri-cyan)
+![Architecture](https://img.shields.io/badge/architecture-Controller--Brain-orange)
+![UI](https://img.shields.io/badge/interface-React%20%7C%20Tauri-cyan)
 
 ---
 
-## 🚀 核心哲学：为何选择 �trix？
+## 🚀 AI 原生革命
 
-| 特性 | 🐯trix (新架构) | 传统 Agent 扫描器 |
-|------|-----------------|-------------------|
-| **稳定性** | ✅ **100% 确定性**，状态机驱动 | ❌ 易陷入死循环，结果不可复现 |
-| **执行环境** | ✅ **原生进程** (零 Docker 依赖) | ❌ 复杂的 Docker-in-Docker，部署困难 |
-| **AI 角色** | ✅ **分析与建议** (副驾驶) | ❌ 全权控制 (容易失控) |
-| **扩展性** | ✅ **开放插件系统** (Web UI + Python) | ❌ 难以修改核心代码 |
-| **性能** | ✅ **本地极速执行** | ❌ 容器启动慢，资源消耗大 |
+Tiger-Strix 的核心哲学是将 AI 视为 **“超级分析师”**，而非黑盒控制器。
+
+- **确定性流程**: 安全阶段（侦察 -> 枚举 -> 扫描 -> 验证）由代码严格控制，确保 100% 的资产覆盖率。
+- **AI 反馈闭环**: 当 AI 怀疑存在漏洞但置信度不足时 (50-80%)，它会自动生成变异 Payload 并进行递归验证，直至确认或排除风险。
+- **零幻觉**: 每一个漏洞发现都配备原始 HTTP PoC、证据截图和严密的推理过程。
 
 ---
 
-## 🌟 主要特性
+## 🛠️ “一键式” 极简体验
 
-### 1. 🎯 确定性扫描阶段机
-🐯trix 不依赖 LLM "决定下一步做什么"，而是通过严格的代码控制流程确保扫描的完整性：
-- **侦察 (Reconnaissance)**: 资产发现
-- **枚举 (Enumeration)**: 参数与路径扩展
-- **漏洞扫描 (Vulnerability Scan)**: 执行插件测试
-- **验证 (Validation)**: PoC 验证与确认
+告别复杂的配置。Tiger-Strix 旨在实现“原生运行，视觉配置”。
 
-### 2. � 双模插件系统
-无限扩展扫描能力，支持两种添加方式：
-- **Web UI (无代码)**: 直接在前端填写命令模板（如 `nmap -sV {target}`），LLM 自动决定何时调用。
-- **Python (高级)**: 编写 Python 类，实现复杂的漏洞解析和逻辑控制。
-
-### 3. 🧠 LLM 增强分析
-LLM (如 GPT-4, Claude) 不控制流程，而是作为**超级分析师**：
-- 分析 HTTP 响应中的隐藏参数
-- 生成针对性的 Payload
-- 解释扫描结果并生成修复建议
-
-### 4. 💻 现代交互界面
-- **Web UI**: 基于 React + Tailwind 的精美管理界面
-- **实时反馈**: WebSocket 实时推送扫描进度和日志
-- **任务管理**: 完整的扫描历史与报告管理
-
----
-
-## 🛠️ 快速开始
-
-### 前置要求
-- **Python**: 3.10+
-- **Node.js**: 18+ (用于前端)
-- **Go**: (可选，用于某些扫描工具如 nuclei)
-
-### 安装与运行
-
+### 1. 启动
 ```bash
-# 1. 克隆项目
 git clone https://github.com/your-repo/trix.git
 cd trix
-
-# 2. 一键启动 (自动安装依赖)
 ./start.sh
 ```
+*该脚本将自动启动后端引擎 (:8000) 和 Web 管理面板 (:5173)。*
 
-访问 Web UI: `http://localhost:5173`
+### 2. 通过 UI 配置
+无需在终端手动 `export` 环境变量。直接打开 Web UI 并进入 **设置 (Settings)** 页面：
+- **选择供应商**: 支持 OpenAI, Anthropic, DeepSeek 以及本地模型 (Ollama/vLLM)。
+- **密钥管理**: 在界面中直接输入 API Key，配置将持久化保存到本地数据库中。
+- **模型切换**: 随时一键从 `gpt-4o-mini` 切换到 `claude-3-5-sonnet` 或 `deepseek-chat`。
 
 ---
 
-## 🔌 添加自定义插件
+## 🎨 Web UI：为安全运营赋能
 
-🐯trix 最强大的功能是其插件系统。
+Tiger-Strix 的仪表盘不仅仅是一个展示窗口，它更是一个**插件 IDE**：
 
-### 方式一：通过前端界面（推荐 - 无需编写代码）
+### ⚡ 无代码添加插件
+发现了一个新的命令行工具，或者想集成 `nikto`/`nuclei`？
+1. 进入 **插件 (Plugins)** 页面。
+2. 点击 **添加自定义插件 (Add Custom Plugin)**。
+3. 填写命令模板：`nuclei -u {target} -t cves/`
+4. 分配扫描阶段（例如：漏洞扫描）。
+5. **即刻生效**。AI 大脑将在后续扫描中自动分析该工具的输出。
 
-适合快速集成命令行工具：
-1. 进入 Web UI 的 **插件** 页面
-2. 点击 **添加自定义插件**
-3. 填写命令（例如：`nikto -host {target}`）
-4. 选择 **能力 (Capabilities)** 和 **阶段 (Phases)**
-5. **即刻生效**，无需重启！
+### 📈 实时工作区
+- **代码追踪 (Tracer)**: 实时观察 AI 的内部推理逻辑和思考过程。
+- **漏洞卡片**: 点击任意漏洞即可查看原始请求/响应、漏洞风险分析及修复建议。
+- **动态任务队列**: 实时查看当前正在测试的参数、路径和 Payload。
 
-### 方式二：Python 插件（高级）
+---
 
-适合深度集成：
+## 🔌 开发者扩展 (低代码)
+
+对于需要深度集成的功能，可以通过继承 `BaseVulnPlugin` 编写 Python 原生插件。
 
 ```python
-# plugins/my-scanner/plugin.py
-from strix.plugins.base import BasePlugin, PluginEvent, ScanPhase
+# trix/plugins/vulns/custom_xss.py
+from trix.plugins.vulns import BaseVulnPlugin, PayloadContext, PayloadSpec
 
-class MyScanner(BasePlugin):
-    name = "my-scanner"
-    phases = [ScanPhase.VULNERABILITY_SCAN]
-    
-    async def execute(self, target: str, phase: ScanPhase, params: dict):
-        yield PluginEvent(event_type="STARTED", message=f"Scanning {target}")
-        # ... 执行逻辑 ...
+class CustomXSS(BaseVulnPlugin):
+    name = "xss_advanced"
+    vuln_type = "xss"
+
+    def generate_payloads(self, context: PayloadContext) -> list[PayloadSpec]:
+        """插件只负责生成测试用例；AI 大脑负责最终审计。"""
+        return [PayloadSpec(payload="<svg/onload=alert(1)>", description="SVG vector")]
 ```
 
 ---
 
-## 🏗️ 架构概览
+## 🔍 检测流水线与底层工具
 
-```
-🐯trix
-├── 🖥️ Desktop (Frontend)    # React + Tauri, 用户交互
-├── 🔌 Plugins               # 独立的安全工具集 (Nuclei, SQLMap, Custom...)
-├── 🧠 Engine (Core)         # 确定性状态机
-│   ├── Phase Manager        # 阶段流转控制
-│   ├── Event Bus            # 实时消息总线
-│   └── Scan Controller      # 任务调度
-└── 💾 Storage               # SQLite 数据持久化
-```
+Tiger-Strix 编排了一个多层级的安全流水线。虽然 **AI 大脑** 负责“思考和判定”，但底层依然使用业界顶尖的工具进行“繁重作业”。
+
+### 1. 漏洞发现工作流
+1.  **阶段 1: AI 增强型侦察 (Recon)**: 使用 `urlfinder` 进行深度端点发现。随后，Trix 通过 **AI API 分析** 推断隐藏的 API 结构（例如，基于 `/api/v1/user` 推测 `/api/v1/admin` 的存在）。
+2.  **阶段 2: 智能敏感信息分析**: 不同于简单的正则匹配，Trix 结合启发式算法与 **LLM 判定**，对发现的 URL 进行深度分析，识别敏感信息泄露（密钥、令牌、配置等）。
+3.  **阶段 3: 针对性 Payload 生成**: 漏洞插件（如 `sqli_detector`, `idor_detector`）根据探测到的技术栈和识别出的具体参数，生成定制化的测试 Payload。
+4.  **阶段 4: AI 智能审计 (Audit)**: 所有 HTTP 响应都会由 **LLM Judge** 进行审计。它会分析响应头、状态码以及 DOM 结构的细微变化，以识别 Blind SQLi 或 IDOR 等隐蔽漏洞。
+5.  **阶段 5: 自主反馈闭环**: 当发现置信度在 50-80% 之间的疑似漏洞时，**递归反馈环** 会自动生成并执行验证任务，进行多轮确认。
+
+### 2. 核心底层集成
+Tiger-Strix 精选并深度集成了以下高性能工具：
+- **URLFinder-x**: 深度端点发现，支持从 JS、HTML 及 API 响应中提取链接。
+- **Nuclei**: 基于模板的高级已知漏洞 (CVE) 及配置缺陷扫描。
+- **Katana / HTTPX**: 业界领先的资产探测与自动化爬虫引擎。
+- **AI 驱动逻辑**: 内置专门的 LLM Agent 负责参数预测、WAF 绕过及漏洞最终审计。
 
 ---
 
-## 🤝 贡献参与
+## 🏗️ 技术架构
 
-欢迎提交 Pull Request！无论是新的插件、UI 改进还是核心优化。
+- **`trix/core/`**: 扫描控制器 (确定性逻辑与高并发控制)。
+- **`trix/brain/`**: AI 判定层与重试机制。
+- **`trix/server/`**: 基于 FastAPI 的后端，支持 WebSocket 实时进度推送。
+- **`desktop/`**: 现代化的 React + Tailwind 前端。
 
-## � 许可证
+---
 
-Apache 2.0 License
+## 📄 许可证
+Apache 2.0
