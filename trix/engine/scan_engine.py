@@ -267,149 +267,9 @@ class ScanEngine:
         
         return scan_id
     
-    async def _run_scan(self, scan_id: str) -> None:
-        """Internal method to run a scan."""
-        from trix.storage import get_database, ScanStatus as DbScanStatus
-        
-        state = self._scans[scan_id]
-        config = state.config
-        collector = self._collectors[scan_id]
-        phase_manager = self._phase_managers[scan_id]
-        db = get_database()
-        
-        state.status = ScanStatus.RUNNING
-        state.started_at = datetime.now(timezone.utc)
-        
-        # Sync to database
-        db.update_scan(scan_id, status=DbScanStatus.RUNNING)
-        
-        # Emit scan started event
-        await self._event_bus.publish(Event(
-            type=EventType.SCAN_STARTED,
-            scan_id=scan_id,
-            data={"target": config.target, "phases": [p.value for p in config.phases]},
-        ))
-        
-        try:
-            total_phases = len(config.phases)
-            completed_phases_set: set[str] = set()
-            
-            async for result in phase_manager.execute_all(
-                config.target,
-                scan_id,
-                config.phases,
-            ):
-                # Track unique completed phases
-                phase_value = result.phase.value
-                if phase_value not in completed_phases_set:
-                    completed_phases_set.add(phase_value)
-                
-                # Update state
-                state.current_phase = result.phase
-                completed_count = len(completed_phases_set)
-                state.progress = min((completed_count / total_phases) * 100, 100)  # Cap at 100%
-                
-                # Sync progress to database
-                db.update_scan(
-                    scan_id,
-                    current_phase=result.phase.value,
-                    progress=state.progress,
-                )
-                
-                # Collect findings in memory
-                collector.add_findings(result.findings)
-                collector.mark_phase_completed(result.phase)
-                
-                # Save phase result to database
-                db.add_phase_result(
-                    scan_id=scan_id,
-                    phase=result.phase.value,
-                    status=result.status.value,
-                    duration_ms=result.duration_ms,
-                    plugins_executed=result.plugins_executed,
-                    findings_count=len(result.findings),
-                    errors=result.errors,
-                )
-                
-                # Save each finding to database
-                for finding in result.findings:
-                    db.add_vulnerability(
-                        scan_id=scan_id,
-                        title=finding.title,
-                        severity=finding.severity,
-                        description=finding.description,
-                        url=finding.url,
-                        plugin_name=finding.plugin_name,
-                        cve_id=getattr(finding, 'cve_id', None),
-                        evidence=getattr(finding, 'evidence', None),
-                        phase=result.phase.value,
-                    )
-                
-                # Check for cancellation
-                if state.status == ScanStatus.CANCELLED:
-                    break
-            
-            # Mark completed
-            if state.status != ScanStatus.CANCELLED:
-                state.status = ScanStatus.COMPLETED
-            
-            state.completed_at = datetime.now(timezone.utc)
-            state.current_phase = None
-            state.progress = 100
-            
-            # Sync to database
-            db.update_scan(
-                scan_id,
-                status=DbScanStatus.COMPLETED,
-                current_phase=None,
-                progress=100,
-                completed=True,
-            )
-            
-            collector.mark_scan_completed()
-            
-            # Auto-export results
-            if config.auto_export:
-                await self._export_results(scan_id)
-            
-            # Emit scan completed event
-            await self._event_bus.publish(Event(
-                type=EventType.SCAN_COMPLETED,
-                scan_id=scan_id,
-                data=collector.get_summary().to_dict(),
-            ))
-            
-        except asyncio.CancelledError:
-            state.status = ScanStatus.CANCELLED
-            db.update_scan(scan_id, status=DbScanStatus.CANCELLED)
-            await self._event_bus.publish(Event(
-                type=EventType.SCAN_CANCELLED,
-                scan_id=scan_id,
-                data={},
-            ))
-            
-        except Exception as e:
-            logger.exception(f"Scan {scan_id} failed")
-            state.status = ScanStatus.FAILED
-            state.error = str(e)
-            
-            db.update_scan(
-                scan_id,
-                status=DbScanStatus.FAILED,
-                error_message=str(e),
-            )
-            
-            await self._event_bus.publish(Event(
-                type=EventType.SCAN_FAILED,
-                scan_id=scan_id,
-                data={"error": str(e)},
-            ))
-        
-        finally:
-            # Cleanup task reference
-            self._tasks.pop(scan_id, None)
-            self._task_queues.pop(scan_id, None)
-            self._active_task_ids.pop(scan_id, None)
+    def _get_pending_verification_tasks(self, scan_id: str) -> list[Any]:
+        # Implementation depends on how tasks are tracked in AI Controller
+        return []
     
     async def _run_scan_loop(self, scan_id: str) -> None:
         """Dynamic task loop - supports runtime task injection.
@@ -422,7 +282,6 @@ class ScanEngine:
         state = self._scans[scan_id]
         config = state.config
         collector = self._collectors[scan_id]
-        phase_manager = self._phase_managers[scan_id]
         task_queue = self._task_queues[scan_id]
         active_tasks = self._active_task_ids[scan_id]
         db = get_database()
@@ -676,6 +535,7 @@ class ScanEngine:
         
         new_tasks: list[ScanTask] = []
         result = None
+        executor = None  # Legacy executor disabled
         start_time = time.time()
         
         logger.debug(
@@ -748,7 +608,13 @@ class ScanEngine:
                      raise RuntimeError("ScanController not initialized")
 
                 # Reroute to AI Controller
-                phase_config = phase_manager.get_phase_config(phase)
+                from trix.models.phase import DEFAULT_PHASE_CONFIGS
+                phase_config = next((pc for pc in DEFAULT_PHASE_CONFIGS if pc.phase == phase), None)
+                
+                if not phase_config:
+                    logger.warning(f"No default config found for phase {phase}")
+                    return None, []
+
                 active_plugins = []
                 for p_name in phase_config.plugins:
                     p = self._registry.get_plugin(p_name)
@@ -1060,9 +926,8 @@ class ScanEngine:
         state.status = ScanStatus.CANCELLED
         
         # Cancel phase manager
-        phase_manager = self._phase_managers.get(scan_id)
-        if phase_manager:
-            phase_manager.cancel()
+        # Cancel active task if any
+        pass
         
         # Cancel task
         task = self._tasks.get(scan_id)

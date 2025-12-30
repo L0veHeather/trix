@@ -222,7 +222,7 @@ stop_all() {
         rm .frontend.pid
     fi
     
-    pkill -f "uvicorn strix.server.app:app" 2>/dev/null || true
+    pkill -f "uvicorn trix.server.app:app" 2>/dev/null || true
     pkill -f "vite" 2>/dev/null || true
     
     log_info "All services stopped."

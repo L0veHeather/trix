@@ -64,8 +64,8 @@ from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 from trix.engine.event_bus import EventType, Event
 
 # Patch DEFAULT_PHASE_CONFIGS IMMEDIATELY after import to include mock_vuln
-from trix.engine import phase_manager as pm_module
-for config in pm_module.DEFAULT_PHASE_CONFIGS:
+from trix.models.phase import DEFAULT_PHASE_CONFIGS
+for config in DEFAULT_PHASE_CONFIGS:
     if config.phase == ScanPhase.VULNERABILITY_SCAN:
         if "mock_vuln" not in config.plugins:
             config.plugins.append("mock_vuln")
