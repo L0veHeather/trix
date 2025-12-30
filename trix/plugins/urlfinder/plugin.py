@@ -20,10 +20,16 @@ from trix.plugins.base import (
     PluginEvent,
     ScanPhase,
     PluginCapability,
+    BasePlugin,
+    PluginEvent,
+    ScanPhase,
+    PluginCapability,
     VulnerabilityFinding,
 )
 from trix.storage.models import VulnerabilitySeverity
 from trix.engine.event_bus import EventType
+from trix.llm.llm import LLM
+from trix.llm.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -192,10 +198,26 @@ class URLFinderPlugin(BasePlugin):
                 _, stderr = await process.communicate()
                 logger.warning(f"URLFinder exited with code {process.returncode}: {stderr.decode()}")
 
+            # Node 1: AI API Analysis
+            inferred_apis = await self.analyze_source_for_hidden_apis(list(urls_found))
+            for api in inferred_apis:
+                yield PluginEvent(
+                    event_type=PluginEventType.FINDING,
+                    message=f"AI Inferred API: {api}",
+                    data=VulnerabilityFinding(
+                        title="AI Inferred Hidden API Endpoint",
+                        severity=VulnerabilitySeverity.INFO,
+                        description=f"AI inferred potential API endpoint based on URL patterns: {api}",
+                        url=api,
+                        plugin_name=self.name,
+                        phase=phase.value
+                    ).to_dict()
+                )
+
             yield PluginEvent(
                 event_type=PluginEventType.COMPLETED,
-                message=f"URLFinder completed. Found {len(urls_found)} in-scope URLs.",
-                data={"count": len(urls_found)}
+                message=f"URLFinder completed. Found {len(urls_found)} URLs. AI inferred {len(inferred_apis)} hidden APIs.",
+                data={"count": len(urls_found), "inferred": len(inferred_apis)}
             )
 
         except Exception as e:
@@ -244,11 +266,73 @@ class URLFinderPlugin(BasePlugin):
         if not is_suspicious:
             return False
             
-        # 2. LLM Judgment (if available)
-        # Note: In a real implementation, we would call LLMController here.
-        # For now, we assume high confidence on heuristics or emit finding for 'AI Pending'.
-        # To follow user request "Need to give to AI for judgment", we flag it as True.
-        # The Finding event (PluginEventType.FINDING) is sufficient to trigger downstream verification 
-        # if the system is configured to verify findings.
+        # 2. LLM Judgment
+        try:
+             # Initialize LLM Client (using default config or env vars)
+             llm = LLM(config=LLMConfig())
+             
+             prompt = f"""
+             You are a security analyst. Analyze the following URL and context for SENSITIVE information exposure.
+             
+             URL: {url}
+             Context: {context}
+             
+             Keywords matched: {', '.join([p for p in self.SENSITIVE_KEYWORDS if re.search(p, url, re.IGNORECASE)])}
+             
+             Determine if this is truly a sensitive exposure (e.g. API key, credentials, internal admin path) vs a false positive (e.g. public API docs, css file).
+             
+             Return JSON:
+             {{
+                "is_sensitive": boolean,
+                "confidence": "high|medium|low",
+                "reason": "explanation"
+             }}
+             """
+             
+             response = await llm.generate([{"role": "user", "content": prompt}])
+             content = response.content
+             
+             # Simple JSON parsing (in production use robust parser)
+             if "true" in content.lower() and '"is_sensitive": true' in content.lower():
+                 return True
+                 
+        except Exception as e:
+            logger.warning(f"LLM analysis failed: {e}")
+            # Fallback to heuristic result if LLM fails
+            return True
         
-        return True
+        return False
+
+    async def analyze_source_for_hidden_apis(self, urls: list[str]) -> list[str]:
+        """Node 1: Analyze valid URLs to infer hidden API structure using AI."""
+        if not urls:
+            return []
+
+        try:
+            llm = LLM(config=LLMConfig())
+            
+            prompt = f"""
+            You are an API Reconnaissance Agent. Analyze the following discovered URLs from a target:
+            
+            {json.dumps(urls[:50], indent=2)}  # Limit to 50 for token saving
+            
+            1. Identify API patterns (e.g. /api/v1/user/1 -> /api/v1/user/{{id}})
+            2. Infer 3-5 POTENTIAL hidden API endpoints that might exist but were not found (e.g. if POST /login exists, maybe POST /register or POST /reset-password exists).
+            3. Must be plausible based on REST/GraphQL conventions.
+            
+            Return ONLY a raw JSON list of strings of inferred URLs. Example: ["/api/v1/admin", "/api/v1/users"]
+            """
+            
+            response = await llm.generate([{"role": "user", "content": prompt}])
+            content = response.content
+            
+            # extract json list
+            match = re.search(r'\[.*\]', content, re.DOTALL)
+            if match:
+                inferred = json.loads(match.group(0))
+                return [u for u in inferred if isinstance(u, str)]
+                
+        except Exception as e:
+            logger.warning(f"AI API Analysis failed: {e}")
+            
+        return []

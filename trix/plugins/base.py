@@ -16,6 +16,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
+from trix.llm.llm import LLM
+from trix.llm.config import LLMConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -502,6 +505,58 @@ class BasePlugin(ABC):
             
         except Exception as e:
             yield self.emit_event(EventType.ERROR, phase, {"error": str(e)})
+    
+    async def mutate_payload_with_ai(
+        self,
+        payload: str,
+        tech_stack: list[str],
+        context: str = ""
+    ) -> str:
+        """Node 3: Mutate payload based on target technology using AI.
+        
+        Args:
+            payload: Original payload (e.g. ' OR 1=1 --)
+            tech_stack: Detected technologies (e.g. ['PostgreSQL', 'Nginx'])
+            context: Additional context
+            
+        Returns:
+            Mutated payload optimized for the stack
+        """
+        if not tech_stack:
+            return payload
+            
+        try:
+            llm = LLM(config=LLMConfig())
+            
+            prompt = f"""
+            You are an Exploit Payload Specialist.
+            
+            Task: Optimize the following security payload for the specific technology stack.
+            
+            Original Payload: {payload}
+            Target Stack: {', '.join(tech_stack)}
+            Context: {context}
+            
+            Instructions:
+            1. Adapt syntax for the specific database/server (e.g. MySQL # vs PostgreSQL --).
+            2. Apply WAF evasion techniques relevant to this stack if typically needed.
+            3. Return ONLY the raw mutated payload string. No quotes, no explanations.
+            """
+            
+            response = await llm.generate([{"role": "user", "content": prompt}])
+            mutated = response.content.strip()
+            
+            # Basic validation to ensure we didn't get a chatty response
+            if len(mutated) > len(payload) * 5 or " " in mutated and "\n" in mutated:
+                # If response looks like a sentence, fallback
+                if "here is" in mutated.lower():
+                     return payload
+            
+            return mutated
+            
+        except Exception as e:
+            logger.warning(f"AI Payload Mutation failed: {e}")
+            return payload
     
     def to_dict(self) -> dict[str, Any]:
         """Convert plugin info to dictionary."""

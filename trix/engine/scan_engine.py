@@ -699,6 +699,49 @@ class ScanEngine:
             if task.task_type == TaskType.PHASE:
                 # Execute full phase
                 phase = ScanPhase(task.phase)
+                
+                # Node 2: AI Semantic Parameter Guessing (Enumeration Phase)
+                if phase == ScanPhase.ENUMERATION and executor:
+                    try:
+                        from trix.brain.param_guesser import LLMParamGuesser
+                        
+                        # Fetch page content for context
+                        logger.info(f"[ParamGuesser] Fetching context for {task.target}")
+                        req_task = ScanTask(
+                            scan_id=task.scan_id,
+                            task_type=TaskType.URL,
+                            target=task.target,
+                            method="GET"
+                        )
+                        response = await executor.execute_request(req_task)
+                        content = response.get("body", "")
+                        
+                        if content:
+                            guesser = LLMParamGuesser()
+                            guessed_params = await guesser.guess_parameters(
+                                url=task.target,
+                                method="GET",
+                                page_content=content
+                            )
+                            
+                            if guessed_params:
+                                # Emit event for visibility
+                                await self._event_bus.publish(Event(
+                                    type=EventType.AI_INTERVENTION,
+                                    scan_id=task.scan_id,
+                                    data={
+                                        "message": f"🤖 AI Guessed Parameters: {', '.join(guessed_params)}",
+                                        "target": task.target,
+                                        "params": guessed_params
+                                    }
+                                ))
+                                
+                                # Store for plugins to use (via phase specific mechanic or just log)
+                                logger.info(f"[ParamGuesser] Guessed: {guessed_params}")
+                                # TODO: pass to plugins via PhaseConfig updates or Shared State
+                    except Exception as e:
+                        logger.warning(f"AI Param Guessing failed: {e}")
+
                 result = await phase_manager.execute_phase(
                     phase,
                     task.target,

@@ -170,6 +170,7 @@ Your task is to analyze HTTP request/response pairs and determine if they indica
 2. **Consider Context**: The payload, expected behavior, and response together
 3. **Avoid False Positives**: Be conservative - only confirm when evidence is strong
 4. **Explain Reasoning**: Clearly articulate why you believe a vulnerability exists or not
+5. **PoC Generation**: For every confirmed vulnerability, you MUST provide the **Raw HTTP Request** (including headers and payload)
 
 ## Response Format:
 
@@ -179,6 +180,7 @@ You must respond with a JSON object containing:
 - risk_level: "critical" | "high" | "medium" | "low" | "info"
 - reasoning: string explaining your analysis
 - evidence: array of specific evidence points
+- http_poc: string (raw HTTP request format, required if vulnerable)
 - false_positive_reasons: array of reasons if not vulnerable
 - mutation_suggestions: array of suggested payload variations if needs more testing
 """

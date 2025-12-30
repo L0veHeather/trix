@@ -151,6 +151,59 @@ class ConcurrentExecutor:
                         **request_kwargs,
                     )
                 
+                # Node 4: AI WAF Bypass
+                if response.status_code in (403, 429):
+                    # Try bypass once
+                    try:
+                        from trix.core.waf_bypass import WAFBypassHandler
+                        logger.info(f"[WAF] Request blocked ({response.status_code}). Attempting AI bypass...")
+                        
+                        bypass = WAFBypassHandler()
+                        new_headers = await bypass.generate_bypass_headers(
+                            task.url,
+                            headers,
+                            response.status_code,
+                            response.text[:500]
+                        )
+                        
+                        if new_headers:
+                            # Merge headers
+                            merged_headers = headers.copy()
+                            merged_headers.update(new_headers)
+                            request_kwargs["headers"] = merged_headers
+                            
+                            logger.info(f"[WAF] Retrying with bypass headers: {new_headers.keys()}")
+                            
+                            # Retry request
+                            # Note: duplicating code briefly to avoid massive refactor of this method
+                            # Ideally execute_request should be refactored or recursive, but for 'patching' this is safer
+                             
+                            if task.method == "GET":
+                                response = await self._client.get(
+                                    task.url,
+                                    params=task.parameters,
+                                    **request_kwargs,
+                                )
+                            elif task.method == "POST":
+                                response = await self._client.post(
+                                    task.url,
+                                    data=task.parameters,
+                                    **request_kwargs,
+                                )
+                            else:
+                                # Generic
+                                response = await self._client.request(
+                                    task.method,
+                                    task.url,
+                                    params=task.parameters,
+                                    **request_kwargs,
+                                )
+                            
+                            logger.info(f"[WAF] Bypass Result: {response.status_code}")
+                            
+                    except Exception as e:
+                         logger.warning(f"WAF Bypass logic failed: {e}")
+
                 return {
                     "status_code": response.status_code,
                     "headers": dict(response.headers),
