@@ -529,7 +529,9 @@ class ScanEngine:
                     
                     # Update progress
                     tasks_completed += 1
-                    progress = min(99, int((tasks_completed / max(1, total_initial_tasks + tasks_completed)) * 100))
+                    # Total estimated work = tasks_completed + current_queue_size
+                    total_estimated = tasks_completed + task_queue.qsize()
+                    progress = min(99, int((tasks_completed / max(1, total_estimated)) * 100))
                     state.progress = progress
                     db.update_scan(scan_id, progress=progress)
                     

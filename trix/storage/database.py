@@ -151,6 +151,7 @@ class Database:
                     scan.error_message = error_message
                 if completed:
                     scan.completed_at = datetime.now(timezone.utc)
+                    scan.current_phase = None  # Clear phase on completion
                 session.flush()
                 session.refresh(scan)
                 session.expunge(scan)

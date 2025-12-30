@@ -98,13 +98,21 @@ class HttpxPlugin(BasePlugin):
         if hasattr(self, "_executable_path"):
             return self._executable_path
         
+        # Check known paths first to avoid conflict with python-httpx
+        common_paths = [
+            Path.home() / "go" / "bin" / "httpx",
+            Path("/usr/local/bin/httpx"),
+            Path("/opt/homebrew/bin/httpx"),
+        ]
+        
+        for path in common_paths:
+            if path.exists():
+                return str(path)
+        
+        # Fallback to PATH
         path = shutil.which("httpx")
         if path:
             return path
-        
-        go_bin = Path.home() / "go" / "bin" / "httpx"
-        if go_bin.exists():
-            return str(go_bin)
         
         return None
     

@@ -97,14 +97,21 @@ class KatanaPlugin(BasePlugin):
         """Get the katana executable path."""
         if hasattr(self, "_executable_path"):
             return self._executable_path
+        # Check known paths first
+        common_paths = [
+            Path.home() / "go" / "bin" / "katana",
+            Path("/usr/local/bin/katana"),
+            Path("/opt/homebrew/bin/katana"),
+        ]
         
+        for path in common_paths:
+            if path.exists():
+                return str(path)
+        
+        # Fallback to PATH
         path = shutil.which("katana")
         if path:
             return path
-        
-        go_bin = Path.home() / "go" / "bin" / "katana"
-        if go_bin.exists():
-            return str(go_bin)
         
         return None
     

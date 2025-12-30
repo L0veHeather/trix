@@ -18,7 +18,7 @@ import logging
 from typing import Any, TYPE_CHECKING
 from dataclasses import dataclass
 
-from trix.plugins.base import BaseVulnPlugin, PayloadContext, PayloadSpec
+from trix.plugins.vulns import BaseVulnPlugin, PayloadContext, PayloadSpec
 from trix.models.finding import VulnFinding
 from trix.core.auth_manager import get_auth_manager
 

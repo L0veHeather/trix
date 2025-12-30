@@ -216,10 +216,10 @@ export default function ScanDetailPage() {
               </div>
             </div>
             <Badge variant={isRunning ? "default" : "secondary"}>
-              {Math.round(scan.progress * 100)}%
+              {Math.round(scan.progress)}%
             </Badge>
           </div>
-          <Progress value={scan.progress * 100} className="h-2" />
+          <Progress value={scan.progress} className="h-2" />
         </CardContent>
       </Card>
 
