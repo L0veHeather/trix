@@ -123,6 +123,7 @@ class ScanController:
         3. Send requests concurrently
         4. Submit to LLM for judgment
         5. Yield confirmed findings
+        6. Process verification queue for uncertain findings
         
         Args:
             target: Target to scan
@@ -139,13 +140,38 @@ class ScanController:
         
         # Scan with each plugin
         for plugin in plugins:
-            if not plugin.enabled:
+            # Check if plugin is enabled (default to True if attribute missing)
+            if not getattr(plugin, 'enabled', True):
+                continue
+            
+            # Check if plugin is AI-compatible (has generate_payloads method)
+            if not hasattr(plugin, 'generate_payloads'):
+                logger.debug(f"Skipping plugin {plugin.name}: not AI-compatible (missing generate_payloads)")
                 continue
             
             logger.info(f"Scanning with plugin: {plugin.name}")
             
             async for finding in self._scan_with_plugin(target, plugin, baseline):
                 yield finding
+            
+            # === [NEW] Process Feedback Loop ===
+            # After initial scan, process any pending verification tasks
+            # These are findings with 50-80% confidence that need re-verification
+            verification_round = 0
+            while self.get_pending_verification_tasks():
+                verification_round += 1
+                pending_count = len(self.get_pending_verification_tasks())
+                
+                logger.info(
+                    f"🧠 AI Feedback Loop: Round {verification_round} - "
+                    f"Processing {pending_count} verification tasks for {plugin.name}"
+                )
+                
+                async for v_finding in self.process_verification_queue(target, plugin, baseline):
+                    yield v_finding
+            
+            if verification_round > 0:
+                logger.info(f"🧠 AI Feedback Loop: Completed {verification_round} verification rounds for {plugin.name}")
     
     async def scan_parameter(
         self,
@@ -221,6 +247,8 @@ class ScanController:
                 target=target.url,
                 parameter=parameter,
                 method=target.method,
+                dom_source=baseline.body if baseline else "",
+                tech_stack=target.tech_stack or [],
             )
             
             # Generate payloads
@@ -268,6 +296,13 @@ class ScanController:
                 if verification_task 
                 else payload_spec.payload
             )
+            
+            # Node 3: AI Payload Mutation
+            if not verification_task and plugin.use_ai_generation:
+                actual_payload = await plugin.mutate_payload_with_ai(
+                    actual_payload,
+                    target.tech_stack
+                )
             
             # 1. Send HTTP request with payload
             request, response = await self._send_payload_request(

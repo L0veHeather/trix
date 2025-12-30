@@ -7,6 +7,7 @@ providing aggregation and filtering capabilities.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -84,6 +85,7 @@ class ResultCollector:
         self._verification_status: dict[str, int] = {}  # finding_id -> status (1=verified, -1=dismissed)
         self._plugins_used: set[str] = set()
         self._phases_completed: set[ScanPhase] = set()
+        self._fingerprints: set[str] = set()  # Deduplication fingerprints
     
     def add_finding(self, finding: VulnerabilityFinding) -> str:
         """Add a finding to the collection.
@@ -91,6 +93,23 @@ class ResultCollector:
         Returns:
             Finding ID
         """
+        # Semantic Deduplication
+        # Create a fingerprint unique to this specific vulnerability instance
+        fp_components = [
+            finding.target,
+            finding.plugin_name,
+            finding.title,
+            finding.parameter or "",
+            finding.payload or ""
+        ]
+        fingerprint = hashlib.sha256("|".join(fp_components).encode()).hexdigest()
+        
+        if fingerprint in self._fingerprints:
+            logger.debug(f"Duplicate finding ignored: {finding.title} @ {finding.target}")
+            return ""  # Return empty or None to indicate ignored
+            
+        self._fingerprints.add(fingerprint)
+
         # Generate ID if not present
         finding_id = f"{self.scan_id}-{len(self._findings)}"
         self._findings.append(finding)

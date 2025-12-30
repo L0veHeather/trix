@@ -130,6 +130,7 @@ class ScanTarget:
     name: str = ""
     description: str = ""
     tags: list[str] = field(default_factory=list)
+    tech_stack: list[str] = field(default_factory=list)  # Detected technologies
     
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""

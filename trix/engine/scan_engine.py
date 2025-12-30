@@ -25,6 +25,12 @@ from trix.engine.phase_manager import PhaseManager, PhaseConfig
 from trix.engine.result_collector import ResultCollector
 from trix.engine.scan_task import ScanTask, TaskType, TaskPriority
 from trix.engine.task_queue import DynamicTaskQueue
+from trix.brain.llm_judge import LLMJudge
+from trix.engine.task_queue import DynamicTaskQueue
+from trix.brain.llm_judge import LLMJudge
+from trix.brain.openai_judge import OpenAIJudge
+from trix.core.llm_controller import ScanController as AIController
+from trix.models.request import ScanTarget
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -170,6 +176,7 @@ class ScanEngine:
         
         # LLM controller references for verification task pump
         self._llm_controllers: dict[str, Any] = {}
+        self._llm_judge: LLMJudge | None = None
         
         self._initialized = False
     
@@ -186,6 +193,12 @@ class ScanEngine:
         # Start event bus
         await self._event_bus.start()
         
+        # Initialize LLM Judge (lazily or here)
+        try:
+            self._llm_judge = OpenAIJudge()
+        except Exception as e:
+            logger.warning(f"Failed to initialize LLM Judge: {e}")
+            
         self._initialized = True
         logger.info("Scan engine initialized")
     
@@ -231,7 +244,7 @@ class ScanEngine:
         self._collectors[scan_id] = collector
         
         # Create phase manager
-        phase_manager = PhaseManager(self._registry, self._event_bus)
+        phase_manager = PhaseManager(self._registry, self._event_bus, llm_judge=self._llm_judge)
         
         # Configure phases based on scan config
         for phase in config.phases:
@@ -452,8 +465,16 @@ class ScanEngine:
             from trix.core.concurrent_executor import ConcurrentExecutor
             
             # Manual context management to avoid re-indenting the whole loop
-            executor = ConcurrentExecutor(max_concurrent=10)
-            await executor.__aenter__()
+            # ### [DEPRECATED] LEGACY FLOW ###
+            # executor = ConcurrentExecutor(max_concurrent=10)
+            # await executor.__aenter__()
+            executor = None  # Safely disable legacy executor
+
+            # Initialize AI Controller
+            logger.info("[MIGRATION] Switching to AI-Native ScanController flow")
+            llm_judge = self._llm_judge
+            scan_controller = AIController(llm_judge=llm_judge)
+            await scan_controller.__aenter__()
             
             # Dynamic task loop
             while not task_queue.empty() or active_tasks:
@@ -525,6 +546,7 @@ class ScanEngine:
                         phase_manager=phase_manager,
                         default_target=config.target,
                         executor=executor,
+                        scan_controller=scan_controller,
                     )
                     
                     # Update progress
@@ -550,6 +572,8 @@ class ScanEngine:
                         )
                         
                         # Collect findings
+                        # ### [DEPRECATED] LEGACY FLOW ###
+                        # Findings collected here come from direct plugin execution events, not AI Judge
                         collector.add_findings(result.findings)
                         collector.mark_phase_completed(result.phase)
                         
@@ -650,6 +674,8 @@ class ScanEngine:
             ))
         
         finally:
+            if 'scan_controller' in locals():
+                await scan_controller.__aexit__(None, None, None)
             if 'executor' in locals():
                 await executor.__aexit__(None, None, None)
                 
@@ -663,6 +689,7 @@ class ScanEngine:
         phase_manager: PhaseManager,
         default_target: str,
         executor: Any = None,
+        scan_controller: ScanController | None = None,
     ) -> tuple[Any, list[ScanTask]]:
         """Execute a single task and return result + new tasks.
         
@@ -742,12 +769,95 @@ class ScanEngine:
                     except Exception as e:
                         logger.warning(f"AI Param Guessing failed: {e}")
 
-                result = await phase_manager.execute_phase(
-                    phase,
-                    task.target,
-                    task.scan_id,
-                )
+                if not scan_controller:
+                     raise RuntimeError("ScanController not initialized")
+
+                # Reroute to AI Controller
+                phase_config = phase_manager.get_phase_config(phase)
+                active_plugins = []
+                for p_name in phase_config.plugins:
+                    p = self._registry.get_plugin(p_name)
+                    if p: active_plugins.append(p)
                 
+                logger.debug(f"[AI Flow] Phase: {phase}, Config plugins: {phase_config.plugins}, Active plugins: {[p.name for p in active_plugins]}")
+
+                findings = []
+                collector = self._collectors[task.scan_id]
+                
+                # === [NEW FLOW] AI-Native Execution ===
+                async for finding in scan_controller.scan(
+                    ScanTarget(task.target),
+                    plugins=active_plugins
+                ):
+                    # [ADAPTER] Streaming Adapter - Ensure legacy compatibility
+                    
+                    # Synthesize missing legacy fields
+                    if not hasattr(finding, "title"):
+                        finding.title = f"{finding.vuln_type.replace('_', ' ').title()}"
+                    if not hasattr(finding, "severity"):
+                        finding.severity = finding.risk_level.value
+                    if not hasattr(finding, "description"):
+                        finding.description = getattr(finding, "llm_reasoning", "No description")
+                    if not hasattr(finding, "url"):
+                        finding.url = finding.target
+                    
+                    # 1. Store in ResultCollector (Semantic Deduplication applied here)
+                    collector.add_finding(finding)
+                    
+                    # 2. Emit Event for UI/Frontend
+                    event_data = finding.to_dict()
+                    # Ensure title is in event data for UI
+                    if "title" not in event_data:
+                        event_data["title"] = finding.title
+                    if "severity" not in event_data:
+                        event_data["severity"] = finding.severity
+                        
+                    await self._event_bus.publish(Event(
+                        type=EventType.VULNERABILITY_FOUND,
+                        scan_id=task.scan_id,
+                        data=event_data
+                    ))
+                    
+                    # 3. Keep for PhaseResult compatibility
+                    findings.append(finding)
+                # === [END NEW FLOW] ===
+                
+                # Construct PhaseResult manually from AI findings
+                from trix.engine.phase_manager import PhaseResult, PhaseStatus
+                result = PhaseResult(
+                    phase=phase,
+                    status=PhaseStatus.COMPLETED,
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    plugins_executed=[p.name for p in active_plugins],
+                    findings=findings
+                )
+
+                # ### [DEPRECATED] LEGACY FLOW ###
+                # result = await phase_manager.execute_phase(
+                #     phase,
+                #     task.target,
+                #     task.scan_id,
+                # )            
+                # raise NotImplementedError("Legacy flow disabled")
+                
+                # Bridge: Extract AI verification tasks
+                if hasattr(result, 'verification_tasks') and result.verification_tasks:
+                   for v_task_dict in result.verification_tasks:
+                       # Create verification task
+                       v_task = ScanTask.create_verification_task(
+                           scan_id=task.scan_id,
+                           target=v_task_dict.get("target_url", task.target),
+                           verification_payload=v_task_dict.get("verification_payload", ""),
+                           expected_behavior=v_task_dict.get("expected_behavior", ""),
+                           parent_task_id=task.task_id,
+                           depth=task.depth + 1,
+                       )
+                       # Add extra metadata
+                       v_task.parameters["vuln_type"] = v_task_dict.get("vuln_type")
+                       
+                       new_tasks.append(v_task)
+                       logger.info(f"[Bridge] Scheduled verification task for {v_task_dict.get('vuln_type')}")
+
                 # Extract new targets from result (discovered URLs, subdomains)
                 if hasattr(result, 'discovered_targets') and result.discovered_targets:
                     for new_target in result.discovered_targets[:10]:  # Limit

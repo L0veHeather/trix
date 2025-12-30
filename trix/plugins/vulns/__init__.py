@@ -29,8 +29,11 @@ class PayloadContext:
     original_value: str = ""
     content_type: str = ""
     
+    content_type: str = ""
+    
     # Additional context
-    tech_stack: list[str] = field(default_factory=list)
+    dom_source: str = ""  # Full HTML content for AI analysis
+    tech_stack: list[str] = field(default_factory=list)  # Detected technologies
     waf_detected: str | None = None
     custom_headers: dict[str, str] = field(default_factory=dict)
 
@@ -107,6 +110,32 @@ class BaseVulnPlugin(ABC):
         """
         pass
     
+    
+    async def mutate_payload_with_ai(
+        self,
+        payload: str,
+        tech_stack: list[str],
+    ) -> str:
+        """Node 3: Mutate payload based on target technology using AI."""
+        if not tech_stack or not self.use_ai_generation:
+            return payload
+            
+        try:
+            from trix.llm.llm import LLM
+            from trix.llm.config import LLMConfig
+            
+            llm = LLM(config=LLMConfig())
+            prompt = f"Optimize payload '{payload}' for stack: {', '.join(tech_stack)}. Return ONLY raw mutated payload."
+            response = await llm.generate([{"role": "user", "content": prompt}])
+            mutated = response.content.strip()
+            # Basic validation
+            if len(mutated) < len(payload) * 5 and " " not in mutated:
+                return mutated
+            return payload
+        except Exception as e:
+            logger.warning(f"AI Payload Mutation failed: {e}")
+            return payload
+
     async def generate_ai_payloads(
         self,
         context: PayloadContext,

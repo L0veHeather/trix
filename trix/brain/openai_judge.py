@@ -35,7 +35,7 @@ class OpenAIJudge(LLMJudge):
     
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str = None,
         api_key: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 2000,
@@ -43,13 +43,21 @@ class OpenAIJudge(LLMJudge):
         """Initialize the OpenAI Judge.
         
         Args:
-            model: Model name (litellm format)
+            model: Model name (litellm format). Defaults to LITELLM_MODEL env var or gpt-4o-mini
             api_key: API key (defaults to env var)
             temperature: LLM temperature (lower = more deterministic)
             max_tokens: Maximum tokens for response
         """
-        self.model = model
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+        # Model selection: env var > constructor arg > default
+        self.model = model or os.getenv("LITELLM_MODEL") or "gpt-4o-mini"
+        
+        # API Key: try multiple env vars for different providers
+        self.api_key = (
+            api_key or 
+            os.getenv("DEEPSEEK_API_KEY") or 
+            os.getenv("OPENAI_API_KEY") or 
+            os.getenv("LLM_API_KEY")
+        )
         self.temperature = temperature
         self.max_tokens = max_tokens
         

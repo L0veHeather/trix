@@ -17,7 +17,12 @@ from trix.plugins.base import ScanPhase, PluginEvent, VulnerabilityFinding
 
 if TYPE_CHECKING:
     from trix.plugins.registry import PluginRegistry
+    from trix.plugins.registry import PluginRegistry
     from trix.engine.event_bus import EventBus
+    from trix.brain.llm_judge import LLMJudge
+
+from trix.models.judgment import JudgmentRequest
+from trix.models.finding import ConfidenceLevel
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +60,10 @@ class PhaseResult:
     plugins_executed: list[str] = field(default_factory=list)
     findings: list[VulnerabilityFinding] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    findings: list[VulnerabilityFinding] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     plugin_outputs: dict[str, str] = field(default_factory=dict)
+    verification_tasks: list[dict[str, Any]] = field(default_factory=list)
     
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -66,7 +74,9 @@ class PhaseResult:
             "plugins_executed": self.plugins_executed,
             "findings_count": len(self.findings),
             "findings": [f.to_dict() for f in self.findings],
+            "findings": [f.to_dict() for f in self.findings],
             "errors": self.errors,
+            "verification_tasks": self.verification_tasks,
         }
 
 
@@ -121,10 +131,12 @@ class PhaseManager:
         self,
         plugin_registry: PluginRegistry,
         event_bus: EventBus,
+        llm_judge: LLMJudge | None = None,
         phase_configs: list[PhaseConfig] | None = None,
     ):
         self._registry = plugin_registry
         self._event_bus = event_bus
+        self._llm_judge = llm_judge
         self._phase_configs = {
             pc.phase: pc for pc in (phase_configs or DEFAULT_PHASE_CONFIGS)
         }
@@ -298,6 +310,7 @@ class PhaseManager:
         phase: ScanPhase,
         parameters: dict[str, Any],
         findings: list[VulnerabilityFinding],
+        verification_tasks: list[dict[str, Any]],
     ) -> str:
         """Execute a single plugin and collect findings."""
         from trix.engine.event_bus import Event, EventType
@@ -328,6 +341,45 @@ class PhaseManager:
                         cve_id=event.data.get("cve"),
                         evidence=event.data.get("evidence"),
                     )
+                    # Intercept Finding for AI Judgment
+                    if self._llm_judge:
+                        try:
+                            # 1. Create Judgment Request
+                            request = JudgmentRequest(
+                                vuln_type=finding.title, # Mapping might need improvement
+                                target=finding.url,
+                                payload=finding.payload or "",
+                                raw_request=str(event.data.get("request", "")),
+                                raw_response=str(event.data.get("response", "")),
+                                baseline_response="", # Plugin might need to provide this
+                            )
+                            
+                            # 2. Judge
+                            result = await self._llm_judge.judge(request)
+                            
+                            # 3. Decision Logic
+                            if result.confidence_level == ConfidenceLevel.FALSE_POSITIVE:
+                                logger.info(f"AI dismissed finding: {finding.title}")
+                                continue
+                                
+                            elif result.confidence_level == ConfidenceLevel.SUSPECTED:
+                                # Generate Verification Task
+                                v_task = await self._llm_judge.generate_verification_task(
+                                    request, result, task_id=f"verify-{len(verification_tasks)}"
+                                )
+                                if v_task:
+                                    verification_tasks.append(v_task.to_dict())
+                                    logger.info(f"AI generated verification task for suspected {finding.title}")
+                                    continue
+                                    
+                            # Determine confirmed or likely -> Proceed to report
+                            finding.confidence_score = result.confidence_score
+                            finding.llm_reasoning = result.reasoning
+                            
+                        except Exception as e:
+                            logger.error(f"AI Judgment failed: {e}")
+                            # Fallback: process as finding but mark unverified
+
                     findings.append(finding)
                     findings_count += 1
                     
