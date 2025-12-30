@@ -129,13 +129,14 @@ def create_app() -> FastAPI:
         )
     
     # Register routes
-    from trix.server.routes import scans, plugins, results, websocket, settings, custom_plugins
+    from trix.server.routes import scans, plugins, results, websocket, settings, custom_plugins, auth
     
     app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
     app.include_router(plugins.router, prefix="/api/plugins", tags=["plugins"])
     app.include_router(custom_plugins.router, prefix="/api/custom-plugins", tags=["custom-plugins"])
     app.include_router(results.router, prefix="/api/results", tags=["results"])
     app.include_router(settings.router, prefix="/api", tags=["settings"])
+    app.include_router(auth.router, prefix="/api/login", tags=["auth"])  # Browser login assistant
     app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
     
     # Health check

@@ -178,7 +178,10 @@ async def get_scan(scan_id: str):
 
 @router.get("/{scan_id}/status")
 async def get_scan_status(scan_id: str):
-    """Get real-time status of a scan."""
+    """Get real-time status of a scan.
+    
+    Returns queue length, completed tasks, and active tasks for state recovery.
+    """
     db = get_database()
     engine = get_scan_engine()
     
@@ -192,14 +195,37 @@ async def get_scan_status(scan_id: str):
     # Get vulnerability stats
     vuln_stats = db.get_vulnerability_stats(scan_id)
     
+    # 🔥 Get dynamic queue info (for state recovery)
+    queue_info = {
+        "queue_size": 0,
+        "active_tasks": [],
+        "tasks_completed": 0,
+        "tasks_added": 0,
+    }
+    
+    if scan_id in engine._task_queues:
+        queue = engine._task_queues[scan_id]
+        queue_stats = queue.get_stats()
+        queue_info = {
+            "queue_size": queue_stats.get("queue_size", 0),
+            "tasks_completed": queue_stats.get("tasks_completed", 0),
+            "tasks_added": queue_stats.get("tasks_added", 0),
+            "tasks_rejected_depth": queue_stats.get("tasks_rejected_depth", 0),
+        }
+    
+    if scan_id in engine._active_task_ids:
+        queue_info["active_tasks"] = list(engine._active_task_ids[scan_id])
+    
     return {
         "scan_id": scan_id,
         "status": scan.status.value if scan.status else "unknown",
         "current_phase": scan.current_phase,
         "progress": scan.progress or 0,
-        "phases": phase_results,  # Already dicts from database
+        "phases": phase_results,
         "vulnerabilities": vuln_stats,
         "is_active": scan_id in engine._tasks,
+        # 🔥 New: Queue info for fine-grained tracking
+        "queue": queue_info,
     }
 
 

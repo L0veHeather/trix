@@ -67,11 +67,16 @@ class ConcurrentExecutor:
         self._semaphore = None
         logger.debug("ConcurrentExecutor closed")
     
-    async def execute_request(self, task: "ScanTask") -> dict[str, Any]:
+    async def execute_request(
+        self,
+        task: "ScanTask",
+        auth_profile: str | None = None,
+    ) -> dict[str, Any]:
         """Execute HTTP request for a task.
         
         Args:
             task: ScanTask with request details
+            auth_profile: Optional auth profile name to use for this request
             
         Returns:
             Dict with status_code, headers, body, or error
@@ -79,49 +84,78 @@ class ConcurrentExecutor:
         if not self._client or not self._semaphore:
             raise RuntimeError("Executor not started. Use 'async with' context.")
         
+        # Get auth headers if profile specified
+        headers = getattr(task, 'headers', {}) or {}
+        cookies = {}
+        
+        if auth_profile:
+            from trix.core.auth_manager import get_auth_manager
+            
+            manager = get_auth_manager()
+            profile = manager.get_profile(auth_profile)
+            
+            if profile:
+                # Apply profile auth to headers
+                headers = profile.apply_to_request(headers)
+                cookies = profile.cookies
+                logger.debug(f"Using auth profile '{auth_profile}' for request")
+        
         async with self._semaphore:
             try:
+                # Prepare request kwargs
+                request_kwargs: dict[str, Any] = {"headers": headers}
+                
+                if cookies:
+                    request_kwargs["cookies"] = cookies
+                
                 if task.method == "GET":
                     response = await self._client.get(
                         task.url,
                         params=task.parameters,
+                        **request_kwargs,
                     )
                 elif task.method == "POST":
                     response = await self._client.post(
                         task.url,
                         data=task.parameters,
+                        **request_kwargs,
                     )
                 elif task.method == "PUT":
                     response = await self._client.put(
                         task.url,
                         data=task.parameters,
+                        **request_kwargs,
                     )
                 elif task.method == "DELETE":
                     response = await self._client.delete(
                         task.url,
                         params=task.parameters,
+                        **request_kwargs,
                     )
                 elif task.method == "PATCH":
                     response = await self._client.patch(
                         task.url,
                         data=task.parameters,
+                        **request_kwargs,
                     )
                 elif task.method == "OPTIONS":
-                    response = await self._client.options(task.url)
+                    response = await self._client.options(task.url, **request_kwargs)
                 elif task.method == "HEAD":
-                    response = await self._client.head(task.url)
+                    response = await self._client.head(task.url, **request_kwargs)
                 else:
                     # Generic request for other methods
                     response = await self._client.request(
                         task.method,
                         task.url,
                         params=task.parameters,
+                        **request_kwargs,
                     )
                 
                 return {
                     "status_code": response.status_code,
                     "headers": dict(response.headers),
                     "body": response.text[:2000],  # Limit response size
+                    "auth_profile": auth_profile,
                 }
                 
             except httpx.TimeoutException as e:
@@ -135,3 +169,27 @@ class ConcurrentExecutor:
             except Exception as e:
                 logger.error(f"Unexpected error: {task.method} {task.url} - {e}")
                 return {"status_code": 0, "error": str(e)}
+    
+    async def execute_with_profiles(
+        self,
+        task: "ScanTask",
+        profile_names: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Execute same request with multiple auth profiles.
+        
+        Useful for IDOR/privilege escalation testing - same request,
+        different users to compare responses.
+        
+        Args:
+            task: ScanTask with request details
+            profile_names: List of profile names to test
+            
+        Returns:
+            Dict mapping profile name to response
+        """
+        results = {}
+        for profile_name in profile_names:
+            result = await self.execute_request(task, auth_profile=profile_name)
+            results[profile_name] = result
+        return results
+

@@ -41,15 +41,17 @@ class VerificationTask:
     
     # === Task Identification ===
     task_id: str
-    parent_task_id: str | None = None  # Links to the original task
-    depth: int = 0  # Recursion depth (for loop prevention)
     
-    # === Target & Payload ===
+    # === Target & Payload (必需字段) ===
     target_url: str
     parameter: str
     vuln_type: str
     original_payload: str
     verification_payload: str  # New payload for verification
+    
+    # === Optional fields ===
+    parent_task_id: str | None = None  # Links to the original task
+    depth: int = 0  # Recursion depth (for loop prevention)
     
     # === Verification Context ===
     reason: VerificationReason = VerificationReason.UNCERTAIN_CONFIDENCE

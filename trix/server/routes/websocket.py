@@ -226,6 +226,34 @@ def setup_event_bus_handlers():
                 },
             })
     
+    # 🔥 Task events for fine-grained progress tracking
+    async def handle_task_started(event: Event):
+        """Forward task started events to task log panel."""
+        scan_id = event.scan_id or event.data.get("scan_id")
+        if scan_id:
+            await manager.broadcast_to_scan(scan_id, {
+                "type": "task.started",
+                "data": event.data,
+            })
+    
+    async def handle_task_finished(event: Event):
+        """Forward task finished events."""
+        scan_id = event.scan_id or event.data.get("scan_id")
+        if scan_id:
+            await manager.broadcast_to_scan(scan_id, {
+                "type": "task.finished",
+                "data": event.data,
+            })
+    
+    async def handle_task_failed(event: Event):
+        """Forward task failed events - frontend should display in task log, not popup."""
+        scan_id = event.scan_id or event.data.get("scan_id")
+        if scan_id:
+            await manager.broadcast_to_scan(scan_id, {
+                "type": "task.failed",
+                "data": event.data,
+            })
+    
     # Subscribe to events
     event_bus.subscribe(EventType.SCAN_STARTED, handle_scan_started)
     event_bus.subscribe(EventType.SCAN_PROGRESS, handle_scan_progress)
@@ -239,6 +267,31 @@ def setup_event_bus_handlers():
     event_bus.subscribe(EventType.PLUGIN_ERROR, handle_plugin_error)
     event_bus.subscribe(EventType.PLUGIN_OUTPUT, handle_plugin_output)
     event_bus.subscribe(EventType.LLM_RESPONSE, handle_llm_response)
+    
+    # Task events (细粒度)
+    event_bus.subscribe(EventType.TASK_STARTED, handle_task_started)
+    event_bus.subscribe(EventType.TASK_FINISHED, handle_task_finished)
+    event_bus.subscribe(EventType.TASK_FAILED, handle_task_failed)
+    
+    # 🔥 AI events - 通知前端 AI 干预状态
+    async def handle_ai_intervention(event: Event):
+        """Forward AI intervention events to show user: 🤖 AI is verifying..."""
+        scan_id = event.scan_id or event.data.get("scan_id")
+        if scan_id:
+            await manager.broadcast_to_scan(scan_id, {
+                "type": "ai.intervention",
+                "data": event.data,
+            })
+        # Also broadcast globally for dashboard visibility
+        await manager.broadcast({
+            "type": "ai.activity",
+            "data": {
+                "scan_id": scan_id,
+                "message": event.data.get("message", "🤖 AI verifying..."),
+            },
+        })
+    
+    event_bus.subscribe(EventType.AI_INTERVENTION, handle_ai_intervention)
 
 
 # Initialize event handlers

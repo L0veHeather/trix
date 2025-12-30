@@ -5,7 +5,6 @@ description = "Open-source AI Hackers for your apps - Rebranded from Strix"
 authors = ["Trix <hi@usetrix.com>"]
 readme = "README.md"
 license = "Apache-2.0"
-...
 packages = [
   { include = "trix", format = ["sdist", "wheel"] }
 ]
@@ -55,13 +54,7 @@ python_functions = ["test_*"]
 python_classes = ["Test*"]
 asyncio_mode = "auto"
 
-[tool.coverage.run]
-source = ["strix"]
-omit = [
-    "*/tests/*",
-    "*/migrations/*",
-    "*/__pycache__/*"
-]
+
 
 [tool.coverage.report]
 exclude_lines = [

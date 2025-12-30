@@ -58,6 +58,17 @@ class EventType(str, Enum):
     PLUGIN_ENABLED = "plugin.enabled"
     PLUGIN_DISABLED = "plugin.disabled"
     
+    # Task events (细粒度任务状态)
+    TASK_STARTED = "task.started"      # {task_id, task_type, target, plugin_name}
+    TASK_FINISHED = "task.finished"    # {task_id, status, duration_ms, findings_count}
+    TASK_FAILED = "task.failed"        # {task_id, error, traceback}
+    TASK_QUEUED = "task.queued"        # {task_id, queue_size}
+    
+    # AI events (AI 干预状态)
+    AI_INTERVENTION = "ai.intervention"  # {task_id, vuln_type, target, message}
+    AI_BYPASS_STARTED = "ai.bypass_started"  # AI 开始生成绕过 payload
+    AI_BYPASS_RESULT = "ai.bypass_result"    # AI bypass 结果
+    
     # Generic
     LOG = "log"
     ERROR = "error"
@@ -135,6 +146,14 @@ class EventBus:
         if handler in self._global_handlers:
             self._global_handlers.remove(handler)
     
+    async def emit(self, event: Event) -> None:
+        """Alias for publish (for compatibility with checklist)."""
+        await self.publish(event)
+
+    def emit_sync(self, event: Event) -> None:
+        """Alias for publish_sync."""
+        self.publish_sync(event)
+
     async def publish(self, event: Event) -> None:
         """Publish an event to all subscribers.
         

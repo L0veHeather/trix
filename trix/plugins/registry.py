@@ -120,6 +120,25 @@ class PluginRegistry:
                 f"Failed to load {len(result.invalid)} plugins: "
                 f"{[p['name'] for p in result.invalid]}"
             )
+            
+            # 🔥 联动 EventBus: 为每个失败的插件发布 PLUGIN_ERROR 事件
+            # 前端可在插件管理页订阅这些事件并展示错误信息
+            try:
+                from trix.engine.event_bus import get_event_bus, Event, EventType
+                bus = get_event_bus()
+                for failed_plugin in result.invalid:
+                    await bus.publish(Event(
+                        type=EventType.PLUGIN_ERROR,
+                        data={
+                            "plugin": failed_plugin["name"],
+                            "error": failed_plugin["error"],
+                            "traceback": failed_plugin["traceback"],
+                            "phase": "load",  # 标记这是加载阶段的错误
+                        },
+                    ))
+                    logger.debug(f"Published PLUGIN_ERROR event for {failed_plugin['name']}")
+            except Exception as e:
+                logger.warning(f"Failed to publish plugin error events: {e}")
         
         return result
     

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -21,6 +21,7 @@ import { scanApi, pluginApi, settingsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useTrixStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import AuthConfiguration from "@/components/AuthConfiguration";
 
 const SCAN_PHASES = [
   { id: "RECONNAISSANCE", name: "信息收集", description: "目标信息搜集", icon: "🔍" },
@@ -69,6 +70,13 @@ export default function ScanPage() {
   );
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
   const [scopeContent, setScopeContent] = useState("");
+
+  // Auth configuration state
+  const [authProfiles, setAuthProfiles] = useState<any[]>([]);
+
+  const handleAuthChange = useCallback((profiles: any[]) => {
+    setAuthProfiles(profiles);
+  }, []);
 
   // 获取可用插件
   const { data: pluginsData } = useQuery({
@@ -145,12 +153,25 @@ export default function ScanPage() {
       return;
     }
 
+    // Build auth profiles for scan config
+    const validAuthProfiles = authProfiles
+      .filter(p => Object.keys(p.cookies).length > 0 || Object.keys(p.headers).length > 0)
+      .map(p => ({
+        name: p.name,
+        role: p.role,
+        headers: p.headers,
+        cookies: p.cookies,
+      }));
+
     createScan.mutate({
       target: target.trim(),
       name: scanName.trim() || undefined,
       phases: selectedPhases.length > 0 ? selectedPhases : undefined,
       plugins: selectedPlugins.length > 0 ? selectedPlugins : undefined,
-      options: scopeContent ? { scope: scopeContent } : undefined,
+      options: {
+        ...(scopeContent ? { scope: scopeContent } : {}),
+        ...(validAuthProfiles.length > 0 ? { auth_profiles: validAuthProfiles } : {}),
+      },
     });
   };
 
@@ -377,6 +398,9 @@ export default function ScanPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 身份配置 */}
+      <AuthConfiguration onAuthChange={handleAuthChange} />
 
       {/* 开始按钮 */}
       <Button
