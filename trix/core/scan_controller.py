@@ -198,6 +198,11 @@ class ScanController:
         """
         with self._lock:
             self._active_tasks[task.task_id] = time.time()
+            logger.info(
+                f"[TaskState] task_id={task.task_id} "
+                f"state=STARTED phase={task.phase.value} "
+                f"url={task.url} method={task.method}"
+            )
     
     def finish_task(self, task: ScanTask) -> None:
         """Mark task as finished.
@@ -206,9 +211,16 @@ class ScanController:
             task: Task that completed
         """
         with self._lock:
+            start_time = self._active_tasks.get(task.task_id)
+            duration_ms = int((time.time() - start_time) * 1000) if start_time else 0
             self._active_tasks.pop(task.task_id, None)
             self._completed_tasks.append(task)
             self._last_progress_time = time.time()
+            logger.info(
+                f"[TaskState] task_id={task.task_id} "
+                f"state=FINISHED phase={task.phase.value} "
+                f"duration_ms={duration_ms}"
+            )
     
     def cleanup_stuck_tasks(self, timeout_seconds: float = 300.0) -> None:
         """Clean up tasks that have been running too long.
@@ -434,6 +446,30 @@ class ScanController:
                 "tasks_running": len(self._active_tasks),
                 "tasks_finished": len(self._completed_tasks),
                 "last_progress_time": self._last_progress_time,
+            }
+    
+    def get_state_snapshot(self) -> dict[str, Any]:
+        """获取当前系统完整状态快照（用于调试/可观测性）。
+        
+        线程安全。返回可JSON序列化的字典。
+        
+        Returns:
+            Dict with complete system state
+        """
+        with self._lock:
+            return {
+                "timestamp": time.time(),
+                "current_phase": PHASE_ORDER[self._current_phase_index].value,
+                "task_queue_size": len(self._task_queue),
+                "active_tasks": {
+                    task_id: {"start_time": start_time, "age_s": int(time.time() - start_time)}
+                    for task_id, start_time in self._active_tasks.items()
+                },
+                "completed_tasks_count": len(self._completed_tasks),
+                "discovered_urls_count": len(self._discovered_urls),
+                "discovered_params_count": len(self._discovered_params),
+                "vulnerabilities_count": len(self._vulnerabilities),
+                "suspected_vulnerabilities_count": len(self._suspected_vulnerabilities),
             }
     
     def get_scan_summary(self) -> dict[str, Any]:

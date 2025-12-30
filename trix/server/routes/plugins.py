@@ -106,6 +106,27 @@ async def list_plugins(
     return PluginListResponse(plugins=plugins, total=len(plugins))
 
 
+@router.get("/load-status")
+async def get_plugin_load_status():
+    """获取插件加载状态，包含失败的插件列表.
+    
+    Returns:
+        loaded: 成功加载的插件数量
+        failed: 加载失败的插件详情列表
+    """
+    from trix.plugins.registry import PluginLoadResult
+    registry = get_plugin_registry()
+    
+    # 获取存储的加载结果
+    load_result = getattr(registry, '_load_result', PluginLoadResult())
+    
+    return {
+        "loaded": len(registry.list_plugins()),
+        "valid": load_result.valid,
+        "failed": load_result.invalid,
+    }
+
+
 @router.get("/{plugin_name}")
 async def get_plugin(plugin_name: str):
     """Get details of a specific plugin."""

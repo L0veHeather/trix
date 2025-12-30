@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from trix.plugins.base import (
@@ -25,6 +27,22 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PluginLoadResult:
+    """插件加载结果.
+    
+    Attributes:
+        valid: 成功加载的插件名称列表
+        invalid: 加载失败的插件信息列表，每项包含 name, error, traceback
+    """
+    valid: list[str] = field(default_factory=list)
+    invalid: list[dict[str, Any]] = field(default_factory=list)
+    
+    def to_dict(self) -> dict[str, Any]:
+        """转换为可序列化的字典."""
+        return {"valid": self.valid, "invalid": self.invalid}
 
 
 class PluginRegistry:
@@ -62,26 +80,48 @@ class PluginRegistry:
         self._global_event_handlers: list[Callable[[PluginEvent], None]] = []
         self._initialized = False
     
-    async def initialize(self) -> None:
-        """Initialize the registry by discovering and loading all plugins."""
+    async def initialize(self) -> PluginLoadResult:
+        """Initialize the registry by discovering and loading all plugins.
+        
+        Returns:
+            PluginLoadResult with lists of valid and invalid plugins
+        """
         if self._initialized:
-            return
+            return PluginLoadResult(valid=list(self._plugins.keys()))
         
         logger.info("Initializing plugin registry...")
+        result = PluginLoadResult()
         
         # Discover plugins
         plugin_names = self._loader.discover_plugins()
         logger.info(f"Discovered {len(plugin_names)} plugins: {plugin_names}")
         
-        # Load each plugin
+        # Load each plugin with safe error handling
         for name in plugin_names:
             try:
                 await self.load_plugin(name)
+                result.valid.append(name)
             except Exception as e:
-                logger.error(f"Failed to load plugin {name}: {e}")
+                error_log = {
+                    "name": name,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+                result.invalid.append(error_log)
+                logger.error(f"[PluginLoadError] {name}: {e}")
         
         self._initialized = True
+        self._load_result = result  # Store for later query
+        
+        # Log summary
         logger.info(f"Registry initialized with {len(self._plugins)} plugins")
+        if result.invalid:
+            logger.warning(
+                f"Failed to load {len(result.invalid)} plugins: "
+                f"{[p['name'] for p in result.invalid]}"
+            )
+        
+        return result
     
     async def load_plugin(
         self,
@@ -298,6 +338,30 @@ class PluginRegistry:
         try:
             async for event in plugin.execute(target, phase, params):
                 yield event
+        except Exception as e:
+            # 构造详细错误信息
+            error_detail = {
+                "plugin": plugin_name,
+                "error": str(e),
+                "type": type(e).__name__,
+                "traceback": traceback.format_exc(),
+                "target": target,
+                "phase": phase.value,
+            }
+            logger.error(f"[PluginExecutionError] {plugin_name}: {e}")
+            
+            # 发布错误事件到 EventBus 供前端订阅
+            try:
+                from trix.engine.event_bus import get_event_bus, Event, EventType
+                bus = get_event_bus()
+                await bus.publish(Event(
+                    type=EventType.PLUGIN_ERROR,
+                    data=error_detail,
+                ))
+            except Exception:
+                pass  # 事件发布失败不影响主流程
+            
+            raise  # 重新抛出让调用方处理
         finally:
             plugin.status = PluginStatus.INSTALLED
             await plugin.cleanup()

@@ -427,15 +427,87 @@ class ScanEngine:
         logger.info(f"Cancelled scan {scan_id}")
         return True
     
+    async def stop_scan(self, scan_id: str) -> bool:
+        """Stop a running scan.
+        
+        Returns:
+            True if scan was stopped successfully
+        """
+        return await self.cancel_scan(scan_id)
+    
     async def pause_scan(self, scan_id: str) -> bool:
-        """Pause a running scan (not yet implemented)."""
-        # TODO: Implement pause functionality
-        return False
+        """Pause a running scan.
+        
+        Returns:
+            True if scan was paused successfully
+        """
+        from trix.storage import get_database, ScanStatus as DbScanStatus
+        
+        state = self._scans.get(scan_id)
+        if state is None:
+            # Try to get from database if not in memory
+            db = get_database()
+            scan = db.get_scan(scan_id)
+            if scan and scan.status.value == 'running':
+                db.update_scan(scan_id, status=DbScanStatus.PAUSED)
+                return True
+            return False
+        
+        if state.status != ScanStatus.RUNNING:
+            return False
+        
+        state.status = ScanStatus.PAUSED
+        
+        # Update database
+        db = get_database()
+        db.update_scan(scan_id, status=DbScanStatus.PAUSED)
+        
+        # Emit pause event
+        await self._event_bus.publish(Event(
+            type=EventType.SCAN_PAUSED,
+            scan_id=scan_id,
+            data={},
+        ))
+        
+        logger.info(f"Paused scan {scan_id}")
+        return True
     
     async def resume_scan(self, scan_id: str) -> bool:
-        """Resume a paused scan (not yet implemented)."""
-        # TODO: Implement resume functionality
-        return False
+        """Resume a paused scan.
+        
+        Returns:
+            True if scan was resumed successfully
+        """
+        from trix.storage import get_database, ScanStatus as DbScanStatus
+        
+        state = self._scans.get(scan_id)
+        if state is None:
+            # Try to get from database if not in memory
+            db = get_database()
+            scan = db.get_scan(scan_id)
+            if scan and scan.status.value == 'paused':
+                db.update_scan(scan_id, status=DbScanStatus.RUNNING)
+                return True
+            return False
+        
+        if state.status != ScanStatus.PAUSED:
+            return False
+        
+        state.status = ScanStatus.RUNNING
+        
+        # Update database
+        db = get_database()
+        db.update_scan(scan_id, status=DbScanStatus.RUNNING)
+        
+        # Emit resume event
+        await self._event_bus.publish(Event(
+            type=EventType.SCAN_RESUMED,
+            scan_id=scan_id,
+            data={},
+        ))
+        
+        logger.info(f"Resumed scan {scan_id}")
+        return True
     
     def get_scan_state(self, scan_id: str) -> ScanState | None:
         """Get the current state of a scan."""

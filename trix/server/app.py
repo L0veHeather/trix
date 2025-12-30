@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -96,13 +97,35 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Exception handler
+    # Global exception handler with structured error response
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.exception(f"Unhandled error: {exc}")
+        
+        # 构造标准化错误响应
+        error_response = {
+            "status": "error",
+            "code": 500,
+            "message": str(exc),
+            "type": type(exc).__name__,
+            "traceback": traceback.format_exc(),
+            "path": str(request.url.path),
+        }
+        
+        # 通过 EventBus 推送错误到前端
+        try:
+            from trix.engine.event_bus import Event, EventType
+            event_bus = get_event_bus()
+            await event_bus.publish(Event(
+                type=EventType.ERROR,
+                data=error_response,
+            ))
+        except Exception:
+            pass  # 推送失败不影响响应
+        
         return JSONResponse(
             status_code=500,
-            content={"error": str(exc), "type": type(exc).__name__},
+            content=error_response,
         )
     
     # Register routes
