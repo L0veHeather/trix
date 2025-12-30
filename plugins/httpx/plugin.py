@@ -15,12 +15,12 @@ from typing import Any, AsyncGenerator
 from trix.plugins.base import (
     BasePlugin,
     PluginResult,
-    VulnerabilityFinding,
     PluginEvent,
     ScanPhase,
     PluginCapability,
     PluginStatus,
 )
+from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +265,7 @@ class HttpxPlugin(BasePlugin):
         except json.JSONDecodeError:
             return None
     
-    def parse_output(self, line: str) -> VulnerabilityFinding | None:
+    def parse_output(self, line: str) -> VulnFinding | None:
         """Parse output - httpx doesn't produce vulnerabilities directly."""
         # Httpx is for reconnaissance, not vulnerability detection
         # It produces host information, not findings

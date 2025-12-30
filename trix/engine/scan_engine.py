@@ -424,14 +424,20 @@ class ScanEngine:
                         for finding in result.findings:
                             db.add_vulnerability(
                                 scan_id=scan_id,
-                                title=finding.title,
-                                severity=finding.severity,
-                                description=finding.description,
-                                url=finding.url,
+                                title=getattr(finding, "title", finding.vuln_type),
+                                severity=getattr(finding, "severity", finding.risk_level.value),
+                                description=getattr(finding, "description", finding.llm_reasoning),
+                                url=getattr(finding, "url", finding.target),
                                 plugin_name=finding.plugin_name,
                                 cve_id=getattr(finding, 'cve_id', None),
                                 evidence=getattr(finding, 'evidence', None),
                                 phase=result.phase.value,
+                                # New fields for direct storage
+                                risk_level=finding.risk_level,
+                                confidence_level=finding.confidence_level,
+                                confidence_score=finding.confidence_score,
+                                llm_reasoning=finding.llm_reasoning,
+                                payload=finding.payload,
                             )
                     
                     # Add newly discovered tasks to queue
@@ -563,51 +569,14 @@ class ScanEngine:
                 phase = ScanPhase(task.phase)
                 
                 # Node 2: AI Semantic Parameter Guessing (Enumeration Phase)
-                if phase == ScanPhase.ENUMERATION and executor:
-                    try:
-                        from trix.brain.param_guesser import LLMParamGuesser
-                        
-                        # Fetch page content for context
-                        logger.info(f"[ParamGuesser] Fetching context for {task.target}")
-                        req_task = ScanTask(
-                            scan_id=task.scan_id,
-                            task_type=TaskType.URL,
-                            target=task.target,
-                            method="GET"
-                        )
-                        response = await executor.execute_request(req_task)
-                        content = response.get("body", "")
-                        
-                        if content:
-                            guesser = LLMParamGuesser()
-                            guessed_params = await guesser.guess_parameters(
-                                url=task.target,
-                                method="GET",
-                                page_content=content
-                            )
-                            
-                            if guessed_params:
-                                # Emit event for visibility
-                                await self._event_bus.publish(Event(
-                                    type=EventType.AI_INTERVENTION,
-                                    scan_id=task.scan_id,
-                                    data={
-                                        "message": f"🤖 AI Guessed Parameters: {', '.join(guessed_params)}",
-                                        "target": task.target,
-                                        "params": guessed_params
-                                    }
-                                ))
-                                
-                                # Store for plugins to use (via phase specific mechanic or just log)
-                                logger.info(f"[ParamGuesser] Guessed: {guessed_params}")
-                                # TODO: pass to plugins via PhaseConfig updates or Shared State
-                    except Exception as e:
-                        logger.warning(f"AI Param Guessing failed: {e}")
+                if phase == ScanPhase.ENUMERATION:
+                    # [DISABLED] Legacy AI Param Guessing depends on old executor
+                    pass
 
                 if not scan_controller:
                      raise RuntimeError("ScanController not initialized")
 
-                # Reroute to AI Controller
+                # Reroute to AI Controller or Tool Execution
                 from trix.models.phase import DEFAULT_PHASE_CONFIGS
                 phase_config = next((pc for pc in DEFAULT_PHASE_CONFIGS if pc.phase == phase), None)
                 
@@ -615,54 +584,127 @@ class ScanEngine:
                     logger.warning(f"No default config found for phase {phase}")
                     return None, []
 
-                active_plugins = []
+                ai_plugins = []
+                legacy_plugins = []
                 for p_name in phase_config.plugins:
                     p = self._registry.get_plugin(p_name)
-                    if p: active_plugins.append(p)
+                    if not p: continue
+                    
+                    if hasattr(p, 'generate_payloads'):
+                        ai_plugins.append(p)
+                    else:
+                        legacy_plugins.append(p)
                 
-                logger.debug(f"[AI Flow] Phase: {phase}, Config plugins: {phase_config.plugins}, Active plugins: {[p.name for p in active_plugins]}")
+                logger.debug(f"[AI Flow] Phase: {phase}, AI plugins: {[p.name for p in ai_plugins]}, Legacy plugins: {[p.name for p in legacy_plugins]}")
 
                 findings = []
                 collector = self._collectors[task.scan_id]
+                active_plugins = ai_plugins + legacy_plugins
                 
-                # === [NEW FLOW] AI-Native Execution ===
-                async for finding in scan_controller.scan(
-                    ScanTarget(task.target),
-                    plugins=active_plugins
-                ):
-                    # [ADAPTER] Streaming Adapter - Ensure legacy compatibility
-                    
-                    # Synthesize missing legacy fields
-                    if not hasattr(finding, "title"):
-                        finding.title = f"{finding.vuln_type.replace('_', ' ').title()}"
-                    if not hasattr(finding, "severity"):
-                        finding.severity = finding.risk_level.value
-                    if not hasattr(finding, "description"):
-                        finding.description = getattr(finding, "llm_reasoning", "No description")
-                    if not hasattr(finding, "url"):
-                        finding.url = finding.target
-                    
-                    # 1. Store in ResultCollector (Semantic Deduplication applied here)
-                    logger.info(f"[🔮TRACER] 5. ✅ Vulnerability Confirmed & Stored! Type={finding.vuln_type}, Target={finding.target}")
-                    collector.add_finding(finding)
-                    
-                    # 2. Emit Event for UI/Frontend
-                    event_data = finding.to_dict()
-                    # Ensure title is in event data for UI
-                    if "title" not in event_data:
-                        event_data["title"] = finding.title
-                    if "severity" not in event_data:
-                        event_data["severity"] = finding.severity
+                # 1. Execute Legacy Plugins (Tool-based)
+                from trix.plugins.base import EventType as PluginEventType
+                for lp in legacy_plugins:
+                    logger.info(f"[Legacy Flow] Executing tool plugin: {lp.name}")
+                    async for p_event in lp.execute(task.target, phase, {}):
+                        # Emit to EventBus for UI visibility
+                        await self._event_bus.publish(Event(
+                            type=EventType.PLUGIN_EVENT,
+                            scan_id=task.scan_id,
+                            data={
+                                "plugin": lp.name,
+                                "type": p_event.event_type.value,
+                                "message": p_event.message,
+                                "data": p_event.data,
+                            }
+                        ))
+
+                        if p_event.event_type == PluginEventType.OUTPUT:
+                            # Search for discovered targets/URLs
+                            if isinstance(p_event.data, dict):
+                                url = p_event.data.get("url")
+                                if url:
+                                    logger.debug(f"[Discovery] Tool found URL: {url}")
+                                    new_tasks.append(ScanTask(
+                                        scan_id=task.scan_id,
+                                        task_type=TaskType.URL,
+                                        target=url,
+                                        priority=TaskPriority.LOW,
+                                        parent_task_id=task.task_id,
+                                        depth=task.depth + 1,
+                                    ))
                         
-                    await self._event_bus.publish(Event(
-                        type=EventType.VULNERABILITY_FOUND,
-                        scan_id=task.scan_id,
-                        data=event_data
-                    ))
-                    
-                    # 3. Keep for PhaseResult compatibility
-                    findings.append(finding)
-                # === [END NEW FLOW] ===
+                        elif p_event.event_type == PluginEventType.VULNERABILITY:
+                            # Process tool-found vulnerability
+                            # Convert legacy finding dict to VulnFinding object for database persistence
+                            try:
+                                from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
+                                from datetime import datetime
+                                
+                                fdata = p_event.data
+                                vf = VulnFinding(
+                                    target=fdata.get("url", task.target),
+                                    vuln_type=fdata.get("vuln_type", "generic"),
+                                    payload=fdata.get("payload", "Tool detection"),
+                                    raw_request=fdata.get("raw_request", ""),
+                                    raw_response=fdata.get("raw_response", ""),
+                                    llm_reasoning=fdata.get("description", "Detected by legacy tool"),
+                                    confidence_score=1.0, # Tool findings are typically high confidence or already confirmed
+                                    confidence_level=ConfidenceLevel.CONFIRMED,
+                                    risk_level=RiskLevel(fdata.get("severity", "medium").lower()),
+                                    plugin_name=lp.name,
+                                    scan_id=task.scan_id,
+                                    discovered_at=datetime.now()
+                                )
+                                # Copy optional fields
+                                vf.parameter = fdata.get("parameter", "")
+                                vf.evidence = [str(fdata.get("evidence", ""))] if fdata.get("evidence") else []
+                                vf.cve_id = fdata.get("cve_id")
+                                vf.cwe_id = fdata.get("cwe_id")
+                                
+                                findings.append(vf)
+                                collector.add_finding(vf)
+                                
+                                await self._event_bus.publish(Event(
+                                    type=EventType.VULNERABILITY_FOUND,
+                                    scan_id=task.scan_id,
+                                    data=vf.to_dict()
+                                ))
+                            except Exception as e:
+                                logger.warning(f"Failed to process legacy finding from {lp.name}: {e}")
+
+                # 2. Execute AI-Native Plugins (ScanController)
+                if ai_plugins:
+                    async for finding in scan_controller.scan(
+                        ScanTarget(task.target),
+                        plugins=ai_plugins
+                    ):
+                        # Synthesize missing legacy fields
+                        if not hasattr(finding, "title"):
+                            finding.title = f"{finding.vuln_type.replace('_', ' ').title()}"
+                        if not hasattr(finding, "severity"):
+                            finding.severity = finding.risk_level.value
+                        if not hasattr(finding, "description"):
+                            finding.description = getattr(finding, "llm_reasoning", "No description")
+                        if not hasattr(finding, "url"):
+                            finding.url = finding.target
+                        
+                        # Store in ResultCollector
+                        logger.info(f"[🔮TRACER] 5. ✅ Vulnerability Confirmed & Stored! Type={finding.vuln_type}, Target={finding.target}")
+                        collector.add_finding(finding)
+                        
+                        # Emit Event for UI/Frontend
+                        event_data = finding.to_dict()
+                        if "title" not in event_data: event_data["title"] = finding.title
+                        if "severity" not in event_data: event_data["severity"] = finding.severity
+                            
+                        await self._event_bus.publish(Event(
+                            type=EventType.VULNERABILITY_FOUND,
+                            scan_id=task.scan_id,
+                            data=event_data
+                        ))
+                        
+                        findings.append(finding)
+                # === [END PLUGINS] ===
                 
                 # Construct PhaseResult manually from AI findings
                 from trix.models.phase import PhaseResult, PhaseStatus
@@ -715,40 +757,21 @@ class ScanEngine:
                 # TODO: Integrate with LLMController
             
             elif task.task_type in (TaskType.URL, TaskType.SUBDOMAIN):
-                # Special handling for IDOR tests
-                if task.parameters.get("idor_test") and executor:
-                    from trix.plugins.vulns.idor import IDORPlugin
-                    from trix.core.scan_phase import PhaseResult
-                    
-                    logger.info(f"[IDOR] Executing IDOR check for {task.target}")
-                    plugin = IDORPlugin()
-                    finding = await plugin.execute_check(
-                        executor=executor,
-                        target_url=task.target,
-                        original_value=task.parameters.get("original_value", ""),
-                        modified_value=task.parameters.get("modified_value", ""),
-                        vuln_type=task.parameters.get("vuln_type", "idor"),
-                    )
-                    
-                    if finding:
-                        # Wrap finding in PhaseResult
-                        result = PhaseResult(
-                            phase=ScanPhase.VULNERABILITY_SCAN,
-                            status="completed",
-                            findings=[finding],
-                        )
-                        logger.warning(f"[IDOR] VULNERABILITY FOUND: {task.target}")
-                    else:
-                        result = PhaseResult(phase=ScanPhase.VULNERABILITY_SCAN, status="completed")
-                        
+                if task.parameters.get("idor_test"):
+                    # [DISABLED] Legacy IDOR depends on old executor
+                    pass
                 else:
                     # Scan new target with vulnerability phase
-                    phase = ScanPhase.VULNERABILITY_SCAN
-                    result = await phase_manager.execute_phase(
-                        phase,
-                        task.target,
-                        task.scan_id,
+                    # For discovered URLs, we only run VULNERABILITY_SCAN phase
+                    vuln_task = ScanTask.create_phase_task(
+                        scan_id=task.scan_id,
+                        target=task.target,
+                        phase=ScanPhase.VULNERABILITY_SCAN.value,
                     )
+                    vuln_task.depth = task.depth + 1
+                    vuln_task.parent_task_id = task.task_id
+                    new_tasks.append(vuln_task)
+                    logger.info(f"[ScanEngine] Discovered URL {task.target}, queued vulnerability scan")
             
             elif task.task_type == TaskType.LOGIC_ANALYSIS:
                 # 🔥 Business logic vulnerability analysis

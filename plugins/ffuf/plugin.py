@@ -16,12 +16,12 @@ from typing import Any, AsyncGenerator
 from trix.plugins.base import (
     BasePlugin,
     PluginResult,
-    VulnerabilityFinding,
     PluginEvent,
     ScanPhase,
     PluginCapability,
     PluginStatus,
 )
+from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -348,7 +348,7 @@ class FfufPlugin(BasePlugin):
                 data={"error": str(e)},
             )
     
-    def parse_output(self, line: str) -> VulnerabilityFinding | None:
+    def parse_output(self, line: str) -> VulnFinding | None:
         """Parse output - ffuf produces endpoints, not vulnerabilities."""
         return None
 

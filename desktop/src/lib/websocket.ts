@@ -270,6 +270,36 @@ class WebSocketManager {
         }
         break;
       }
+
+      case "ai.intervention": {
+        const aiData = data as { scan_id: string; message: string; target?: string; plugin?: string };
+        store.addConsoleLog(aiData.scan_id, {
+          type: "info",
+          source: "AI Brain",
+          message: `🤖 ${aiData.message}`,
+          details: aiData,
+        });
+        break;
+      }
+
+      case "plugin.event": {
+        const pEvent = data as { scan_id: string; plugin: string; type: string; message: string; data?: any };
+        const typeMap: Record<string, any> = {
+          "output": "output",
+          "warning": "warning",
+          "error": "error",
+          "vulnerability": "warning",
+          "started": "command",
+          "completed": "success"
+        };
+        store.addConsoleLog(pEvent.scan_id, {
+          type: typeMap[pEvent.type] || "info",
+          source: pEvent.plugin,
+          message: pEvent.message,
+          details: pEvent.data
+        });
+        break;
+      }
     }
   }
 
@@ -357,7 +387,7 @@ export function useWebSocket() {
   }, []);
 
   const on = useCallback((type: string, handler: MessageHandler) => {
-    return wsRef.current?.on(type, handler) || (() => {});
+    return wsRef.current?.on(type, handler) || (() => { });
   }, []);
 
   return { subscribe, unsubscribe, on };

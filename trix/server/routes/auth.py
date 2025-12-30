@@ -71,6 +71,9 @@ async def start_login_session(
             headless=request.headless,
         )
         
+        # Start background task to detect login success
+        background_tasks.add_task(assistant.wait_for_login_success, session_id)
+        
         session_info = await assistant.get_session_info(session_id)
         
         return LoginSessionResponse(
@@ -177,10 +180,14 @@ async def wait_for_login(
         raise HTTPException(status_code=404, detail="Session not found")
     
     try:
-        cookies = await assistant.wait_for_login_success(
-            session_id,
-            timeout_seconds=timeout,
-        )
+        # If already successful (detected by background task), return immediately
+        if session.status == LoginSessionStatus.SUCCESS:
+            cookies = session.cookies
+        else:
+            cookies = await assistant.wait_for_login_success(
+                session_id,
+                timeout_seconds=timeout,
+            )
         
         # Convert cookies to AuthProfile format
         cookie_dict = {c["name"]: c["value"] for c in cookies}

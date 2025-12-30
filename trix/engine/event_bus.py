@@ -41,6 +41,7 @@ class EventType(str, Enum):
     PLUGIN_OUTPUT = "plugin.output"
     PLUGIN_COMPLETED = "plugin.completed"
     PLUGIN_ERROR = "plugin.error"
+    PLUGIN_EVENT = "plugin.event"
     
     # Findings
     VULNERABILITY_FOUND = "vulnerability.found"

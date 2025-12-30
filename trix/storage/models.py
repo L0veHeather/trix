@@ -141,6 +141,12 @@ class Vulnerability(Base):
     cwe_id = Column(String(20))
     owasp_category = Column(String(50))
     
+    # AI Analysis
+    risk_level = Column(String(20))
+    confidence_level = Column(String(20))
+    confidence_score = Column(Float)
+    llm_reasoning = Column(Text)
+    
     # Evidence (stored as JSON)
     evidence = Column(JSON, default=dict)
     
@@ -170,6 +176,10 @@ class Vulnerability(Base):
             "cve_id": self.cve_id,
             "cwe_id": self.cwe_id,
             "owasp_category": self.owasp_category,
+            "risk_level": self.risk_level,
+            "confidence_level": self.confidence_level,
+            "confidence_score": self.confidence_score,
+            "llm_reasoning": self.llm_reasoning,
             "evidence": self.evidence,
             "verification_status": self.verification_status,
             "verification_notes": self.verification_notes,

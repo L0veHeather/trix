@@ -15,12 +15,12 @@ from typing import Any, AsyncGenerator
 from trix.plugins.base import (
     BasePlugin,
     PluginResult,
-    VulnerabilityFinding,
     PluginEvent,
     ScanPhase,
     PluginCapability,
     PluginStatus,
 )
+from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -302,22 +302,28 @@ class SqlmapPlugin(BasePlugin):
                 if injectable_match or vuln_match:
                     param = injectable_match.group(2) if injectable_match else vuln_match.group(1)
                     
-                    finding = VulnerabilityFinding(
-                        title=f"SQL Injection in parameter: {param}",
-                        severity="critical",
-                        description=f"SQL injection vulnerability found in {param} parameter",
-                        url=params.get("url", ""),
+                    finding = VulnFinding(
+                        target=params.get("url", target),
+                        vuln_type="SQL Injection",
+                        payload=current_payload or "Tool discovery",
+                        raw_request="",
+                        raw_response="",
+                        llm_reasoning=f"SQL injection vulnerability found in {param} parameter. DBMS: {dbms}",
+                        confidence_score=1.0,
+                        confidence_level=ConfidenceLevel.CONFIRMED,
+                        risk_level=RiskLevel.CRITICAL,
                         parameter=param,
-                        payload=current_payload,
                         plugin_name=self.name,
-                        cwe_id="CWE-89",
-                        owasp_category="A03:2021 Injection",
-                        evidence={
-                            "injection_type": current_type,
-                            "dbms": dbms,
-                            "technique": current_type,
-                        },
+                        scan_id="",
                     )
+                    # Legacy compatibility fields
+                    finding.title = f"SQL Injection in parameter: {param}"
+                    finding.severity = "critical"
+                    finding.description = finding.llm_reasoning
+                    finding.url = finding.target
+                    finding.cwe_id = "CWE-89"
+                    finding.owasp_category = "A03:2021 Injection"
+                    finding.evidence = [f"DBMS: {dbms}", f"Type: {current_type}"]
                     
                     findings.append(finding)
                     
@@ -355,19 +361,28 @@ class SqlmapPlugin(BasePlugin):
                 data={"error": str(e)},
             )
     
-    def parse_output(self, line: str) -> VulnerabilityFinding | None:
+    def parse_output(self, line: str) -> VulnFinding | None:
         """Parse sqlmap output line."""
         injectable_match = self.INJECTABLE_PATTERN.search(line)
         if injectable_match:
             param = injectable_match.group(2)
-            return VulnerabilityFinding(
-                title=f"SQL Injection: {param}",
-                severity="critical",
-                description=f"SQL injection in {param}",
+            finding = VulnFinding(
+                target="", # Unknown from single line
+                vuln_type="SQL Injection",
+                payload="",
+                raw_request="",
+                raw_response="",
+                llm_reasoning=f"SQL injection in {param}",
+                confidence_score=0.9,
+                confidence_level=ConfidenceLevel.SUSPECTED,
+                risk_level=RiskLevel.CRITICAL,
                 parameter=param,
                 plugin_name=self.name,
-                cwe_id="CWE-89",
+                scan_id="",
             )
+            finding.title = f"SQL Injection: {param}"
+            finding.severity = "critical"
+            return finding
         return None
 
 

@@ -8,7 +8,7 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${getApiUrl()}${endpoint}`;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -16,12 +16,12 @@ async function apiFetch<T>(
       ...options.headers,
     },
   });
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
     throw new Error(error.detail || error.error || `HTTP ${response.status}`);
   }
-  
+
   return response.json();
 }
 
@@ -58,15 +58,15 @@ export const scanApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  
+
   list: (params?: { status?: string; limit?: number; offset?: number }) =>
     apiFetch<ScanListResponse>(
       `/api/scans?${new URLSearchParams(params as Record<string, string>)}`
     ),
-  
+
   get: (scanId: string) =>
     apiFetch<ScanResponse>(`/api/scans/${scanId}`),
-  
+
   getStatus: (scanId: string) =>
     apiFetch<{
       scan_id: string;
@@ -84,16 +84,16 @@ export const scanApi = {
         by_severity: Record<string, number>;
       };
     }>(`/api/scans/${scanId}/status`),
-  
+
   pause: (scanId: string) =>
     apiFetch<{ status: string }>(`/api/scans/${scanId}/pause`, { method: "POST" }),
-  
+
   resume: (scanId: string) =>
     apiFetch<{ status: string }>(`/api/scans/${scanId}/resume`, { method: "POST" }),
-  
+
   stop: (scanId: string) =>
     apiFetch<{ status: string }>(`/api/scans/${scanId}/stop`, { method: "POST" }),
-  
+
   delete: (scanId: string) =>
     apiFetch<{ status: string }>(`/api/scans/${scanId}`, { method: "DELETE" }),
 };
@@ -122,12 +122,12 @@ export const pluginApi = {
     apiFetch<PluginListResponse>(
       `/api/plugins?${new URLSearchParams(params as Record<string, string>)}`
     ),
-  
+
   get: (pluginName: string) =>
     apiFetch<PluginInfo & { parameters: Array<{ name: string; description: string; type: string }> }>(
       `/api/plugins/${pluginName}`
     ),
-  
+
   install: (pluginName: string, force = false) =>
     apiFetch<{ status: string; plugin: string; version: string }>(
       `/api/plugins/${pluginName}/install`,
@@ -136,16 +136,16 @@ export const pluginApi = {
         body: JSON.stringify({ name: pluginName, force }),
       }
     ),
-  
+
   update: (pluginName: string) =>
     apiFetch<{ status: string }>(`/api/plugins/${pluginName}/update`, { method: "POST" }),
-  
+
   enable: (pluginName: string) =>
     apiFetch<{ status: string }>(`/api/plugins/${pluginName}/enable`, { method: "POST" }),
-  
+
   disable: (pluginName: string) =>
     apiFetch<{ status: string }>(`/api/plugins/${pluginName}/disable`, { method: "POST" }),
-  
+
   configure: (pluginName: string, config: Record<string, unknown>) =>
     apiFetch<{ status: string }>(`/api/plugins/${pluginName}/config`, {
       method: "PUT",
@@ -194,22 +194,22 @@ export const resultsApi = {
         params as Record<string, string>
       )}`
     ),
-  
+
   getVulnerability: (vulnId: string) =>
     apiFetch<VulnerabilityResponse>(`/api/results/vulnerability/${vulnId}`),
-  
+
   verifyVulnerability: (vulnId: string, status: number, notes?: string) =>
     apiFetch<{ status: string }>(`/api/results/vulnerability/${vulnId}/verify`, {
       method: "POST",
       body: JSON.stringify({ status, notes }),
     }),
-  
+
   dismissVulnerability: (vulnId: string, notes?: string) =>
     apiFetch<{ status: string }>(`/api/results/vulnerability/${vulnId}/dismiss`, {
       method: "POST",
       body: JSON.stringify({ notes }),
     }),
-  
+
   getScanStats: (scanId: string) =>
     apiFetch<{
       scan_id: string;
@@ -226,7 +226,7 @@ export const resultsApi = {
         findings_count: number;
       }>;
     }>(`/api/results/scan/${scanId}/stats`),
-  
+
   exportResults: (
     scanId: string,
     format: "json" | "markdown" | "sarif" | "csv"
@@ -236,12 +236,12 @@ export const resultsApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ format }),
     }).then((res) => res.blob()),
-  
+
   getRecentVulnerabilities: (limit = 20) =>
     apiFetch<{ vulnerabilities: VulnerabilityResponse[] }>(
       `/api/results/recent?limit=${limit}`
     ),
-  
+
   getSeverityBreakdown: () =>
     apiFetch<{ breakdown: Record<string, number>; total: number }>(
       "/api/results/severity-breakdown"
@@ -311,4 +311,29 @@ export const settingsApi = {
       method: "PUT",
       body: JSON.stringify({ value }),
     }),
+};
+// ==================== Auth API (Login Assistant) ====================
+
+export const authApi = {
+  startLogin: (url: string, profileName: string) =>
+    apiFetch<any>("/api/login/start", {
+      method: "POST",
+      body: JSON.stringify({ url, profile_name: profileName, headless: true }),
+    }),
+
+  getScreenshot: (sessionId: string) =>
+    apiFetch<{ screenshot: string }>("/api/login/" + sessionId + "/screenshot"),
+
+  getStatus: (sessionId: string) =>
+    apiFetch<{ status: string; target_url: string; current_url?: string; cookies_count: number; error?: string }>(
+      "/api/login/" + sessionId + "/status"
+    ),
+
+  waitForLogin: (sessionId: string, profileName: string) =>
+    apiFetch<any>(`/api/login/${sessionId}/wait?profile_name=${profileName}`, {
+      method: "POST",
+    }),
+
+  cancelSession: (sessionId: string) =>
+    apiFetch<any>(`/api/login/${sessionId}/cancel`, { method: "POST" }),
 };

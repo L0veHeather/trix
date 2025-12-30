@@ -8,7 +8,6 @@ import {
   Download,
   ChevronDown,
   ChevronUp,
-  // Filter,
   Circle,
 } from "lucide-react";
 
@@ -19,7 +18,7 @@ interface ScanConsoleProps {
   autoScroll?: boolean;
 }
 
-type LogFilter = "all" | "output" | "error" | "info" | "warning";
+type LogFilter = "all" | "output" | "error" | "info" | "warning" | "ai";
 
 export function ScanConsole({
   scanId,
@@ -31,7 +30,7 @@ export function ScanConsole({
   const [isExpanded, setIsExpanded] = useState(true);
   const [filter, setFilter] = useState<LogFilter>("all");
   const [shouldAutoScroll, setShouldAutoScroll] = useState(autoScroll);
-  
+
   const logs = useTrixStore((state) => state.consoleLogs.get(scanId) || []);
   const clearLogs = useTrixStore((state) => state.clearConsoleLogs);
 
@@ -43,9 +42,11 @@ export function ScanConsole({
   }, [logs, shouldAutoScroll]);
 
   // Filter logs
-  const filteredLogs = filter === "all" 
-    ? logs 
-    : logs.filter((log) => log.type === filter);
+  const filteredLogs = filter === "all"
+    ? logs
+    : filter === "ai"
+      ? logs.filter((log) => log.source === "AI Brain")
+      : logs.filter((log) => log.type === filter);
 
   const handleExport = () => {
     const content = logs
@@ -54,7 +55,7 @@ export function ScanConsole({
         return `[${time}] [${log.type.toUpperCase()}] [${log.source}] ${log.message}`;
       })
       .join("\n");
-    
+
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -64,7 +65,7 @@ export function ScanConsole({
     URL.revokeObjectURL(url);
   };
 
-  const getLogTypeColor = (type: ConsoleLogEntry["type"]) => {
+  const getLogTypeColor = (type: any) => {
     switch (type) {
       case "error": return "text-red-400";
       case "warning": return "text-yellow-400";
@@ -72,15 +73,19 @@ export function ScanConsole({
       case "info": return "text-blue-400";
       case "command": return "text-purple-400";
       case "output": return "text-zinc-300";
+      case "ai": return "text-cyan-400 font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]";
       default: return "text-zinc-400";
     }
   };
 
   const getSourceColor = (source: string) => {
+    if (source === "AI Brain") return "text-cyan-400 font-bold animate-pulse";
+    if (source === "system") return "text-zinc-400 font-bold";
+
     // Consistent color per source
     const colors = [
       "text-cyan-400",
-      "text-pink-400", 
+      "text-pink-400",
       "text-orange-400",
       "text-emerald-400",
       "text-violet-400",
@@ -103,24 +108,24 @@ export function ScanConsole({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Terminal className="h-4 w-4 text-green-400" />
-            <span className="font-mono text-sm font-medium text-zinc-200">Console</span>
+            <span className="font-mono text-sm font-medium text-zinc-200">控制台</span>
           </div>
-          
+
           {/* Status indicators */}
           <div className="flex items-center gap-2 text-xs">
             {errorCount > 0 && (
               <span className="flex items-center gap-1 text-red-400">
                 <Circle className="h-2 w-2 fill-current" />
-                {errorCount} errors
+                {errorCount} 错误
               </span>
             )}
             {warningCount > 0 && (
               <span className="flex items-center gap-1 text-yellow-400">
                 <Circle className="h-2 w-2 fill-current" />
-                {warningCount} warnings
+                {warningCount} 告警
               </span>
             )}
-            <span className="text-zinc-500">{logs.length} lines</span>
+            <span className="text-zinc-500">{logs.length} 行日志</span>
           </div>
         </div>
 
@@ -131,11 +136,12 @@ export function ScanConsole({
             onChange={(e) => setFilter(e.target.value as LogFilter)}
             className="h-7 px-2 text-xs bg-zinc-800 border-zinc-700 rounded text-zinc-300"
           >
-            <option value="all">All</option>
-            <option value="output">Output</option>
-            <option value="error">Errors</option>
-            <option value="warning">Warnings</option>
-            <option value="info">Info</option>
+            <option value="all">全部</option>
+            <option value="ai">AI 分析</option>
+            <option value="output">输出</option>
+            <option value="error">错误</option>
+            <option value="warning">告警</option>
+            <option value="info">信息</option>
           </select>
 
           <Button
@@ -143,7 +149,7 @@ export function ScanConsole({
             size="icon"
             className="h-7 w-7"
             onClick={() => setShouldAutoScroll(!shouldAutoScroll)}
-            title={shouldAutoScroll ? "Disable auto-scroll" : "Enable auto-scroll"}
+            title={shouldAutoScroll ? "禁用自动滚动" : "启用自动滚动"}
           >
             <ChevronDown className={cn("h-4 w-4", shouldAutoScroll && "text-green-400")} />
           </Button>
@@ -153,7 +159,7 @@ export function ScanConsole({
             size="icon"
             className="h-7 w-7"
             onClick={handleExport}
-            title="Export logs"
+            title="导出日志"
           >
             <Download className="h-4 w-4" />
           </Button>
@@ -163,7 +169,7 @@ export function ScanConsole({
             size="icon"
             className="h-7 w-7"
             onClick={() => clearLogs(scanId)}
-            title="Clear logs"
+            title="清空日志"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -188,7 +194,7 @@ export function ScanConsole({
         >
           {filteredLogs.length === 0 ? (
             <div className="text-zinc-600 text-center py-8">
-              Waiting for scan output...
+              正在等待扫描输出...
             </div>
           ) : (
             filteredLogs.map((log) => (
@@ -197,14 +203,17 @@ export function ScanConsole({
                 <span className="text-zinc-600 text-xs shrink-0">
                   {log.timestamp.toLocaleTimeString()}
                 </span>
-                
+
                 {/* Source badge */}
                 <span className={cn("text-xs shrink-0", getSourceColor(log.source))}>
                   [{log.source}]
                 </span>
-                
+
                 {/* Message */}
-                <span className={cn("break-all", getLogTypeColor(log.type))}>
+                <span className={cn(
+                  "break-all",
+                  log.source === "AI Brain" ? "text-cyan-300 bg-cyan-950/30 px-1 rounded border border-cyan-800/30" : getLogTypeColor(log.type)
+                )}>
                   {log.message}
                 </span>
               </div>
@@ -224,7 +233,7 @@ export function ScanConsoleInline({ scanId }: { scanId: string }) {
   return (
     <div className="bg-zinc-950 rounded border border-zinc-800 p-3 font-mono text-xs space-y-1">
       {lastLogs.length === 0 ? (
-        <div className="text-zinc-600">Waiting for output...</div>
+        <div className="text-zinc-600">正在等待输出...</div>
       ) : (
         lastLogs.map((log) => (
           <div key={log.id} className="text-zinc-400 truncate">
@@ -234,6 +243,7 @@ export function ScanConsoleInline({ scanId }: { scanId: string }) {
               log.type === "error" && "text-red-400",
               log.type === "success" && "text-green-400",
               log.type === "warning" && "text-yellow-400",
+              log.source === "AI Brain" && "text-cyan-400 font-bold",
             )}>
               {log.message}
             </span>

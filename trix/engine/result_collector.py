@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from trix.plugins.base import ScanPhase, VulnerabilityFinding
+from trix.plugins.base import ScanPhase
+from trix.models.finding import VulnFinding
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +82,13 @@ class ResultCollector:
         self.started_at = datetime.now(timezone.utc)
         self.completed_at: datetime | None = None
         
-        self._findings: list[VulnerabilityFinding] = []
+        self._findings: list[VulnFinding] = []
         self._verification_status: dict[str, int] = {}  # finding_id -> status (1=verified, -1=dismissed)
         self._plugins_used: set[str] = set()
         self._phases_completed: set[ScanPhase] = set()
         self._fingerprints: set[str] = set()  # Deduplication fingerprints
     
-    def add_finding(self, finding: VulnerabilityFinding) -> str:
+    def add_finding(self, finding: VulnFinding) -> str:
         """Add a finding to the collection.
         
         Returns:
@@ -98,14 +99,14 @@ class ResultCollector:
         fp_components = [
             finding.target,
             finding.plugin_name,
-            finding.title,
+            finding.vuln_type,
             finding.parameter or "",
             finding.payload or ""
         ]
         fingerprint = hashlib.sha256("|".join(fp_components).encode()).hexdigest()
         
         if fingerprint in self._fingerprints:
-            logger.debug(f"Duplicate finding ignored: {finding.title} @ {finding.target}")
+            logger.debug(f"Duplicate finding ignored: {finding.vuln_type} @ {finding.target}")
             return ""  # Return empty or None to indicate ignored
             
         self._fingerprints.add(fingerprint)
@@ -115,10 +116,10 @@ class ResultCollector:
         self._findings.append(finding)
         self._plugins_used.add(finding.plugin_name)
         
-        logger.debug(f"Added finding: {finding.title} ({finding.severity})")
+        logger.debug(f"Added finding: {finding.vuln_type} ({finding.risk_level})")
         return finding_id
     
-    def add_findings(self, findings: list[VulnerabilityFinding]) -> None:
+    def add_findings(self, findings: list[VulnFinding]) -> None:
         """Add multiple findings."""
         for finding in findings:
             self.add_finding(finding)
@@ -150,7 +151,7 @@ class ResultCollector:
             return True
         return False
     
-    def get_finding(self, index: int) -> VulnerabilityFinding | None:
+    def get_finding(self, index: int) -> VulnFinding | None:
         """Get a finding by index."""
         if 0 <= index < len(self._findings):
             return self._findings[index]
@@ -163,7 +164,7 @@ class ResultCollector:
         phase: ScanPhase | None = None,
         verified_only: bool = False,
         exclude_dismissed: bool = True,
-    ) -> list[VulnerabilityFinding]:
+    ) -> list[VulnFinding]:
         """Get findings with optional filtering.
         
         Args:
@@ -183,7 +184,7 @@ class ResultCollector:
             verification = self._verification_status.get(finding_id, 0)
             
             # Apply filters
-            if severity and finding.severity != severity:
+            if severity and finding.risk_level.value != severity:
                 continue
             if plugin and finding.plugin_name != plugin:
                 continue
@@ -217,7 +218,7 @@ class ResultCollector:
                 summary.verified_count += 1
             
             # Count by severity
-            severity = finding.severity.lower()
+            severity = finding.risk_level.value.lower()
             if severity == "critical":
                 summary.critical_count += 1
             elif severity == "high":
@@ -294,14 +295,14 @@ class ResultCollector:
                 lines.append("")
                 
                 for finding in findings:
-                    lines.append(f"#### {finding.title}")
+                    lines.append(f"#### {finding.vuln_type}")
                     lines.append(f"")
-                    lines.append(f"- **URL:** {finding.url}")
+                    lines.append(f"- **URL:** {finding.target}")
                     lines.append(f"- **Plugin:** {finding.plugin_name}")
                     if finding.cve_id:
                         lines.append(f"- **CVE:** {finding.cve_id}")
                     lines.append(f"")
-                    lines.append(finding.description)
+                    lines.append(finding.llm_reasoning)
                     lines.append(f"")
         
         with open(path, "w", encoding="utf-8") as f:
@@ -337,16 +338,16 @@ class ResultCollector:
         
         for finding in self._findings:
             result = {
-                "ruleId": finding.template_id or finding.plugin_name,
-                "level": severity_map.get(finding.severity.lower(), "note"),
+                "ruleId": finding.plugin_name,
+                "level": severity_map.get(finding.risk_level.value.lower(), "note"),
                 "message": {
-                    "text": finding.description or finding.title,
+                    "text": finding.llm_reasoning or finding.vuln_type,
                 },
                 "locations": [
                     {
                         "physicalLocation": {
                             "artifactLocation": {
-                                "uri": finding.url,
+                                "uri": finding.target,
                             }
                         }
                     }

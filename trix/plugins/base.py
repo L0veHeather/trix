@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Callable
 
 from trix.llm.llm import LLM
 from trix.llm.config import LLMConfig
+from trix.models.finding import VulnFinding
 
 logger = logging.getLogger(__name__)
 
@@ -112,51 +113,6 @@ class PluginEvent:
 
 
 @dataclass
-class VulnerabilityFinding:
-    """A vulnerability discovered by a plugin."""
-    
-    title: str
-    severity: str  # info, low, medium, high, critical
-    description: str
-    url: str
-    plugin_name: str
-    phase: ScanPhase
-    
-    # Optional fields
-    parameter: str | None = None
-    payload: str | None = None
-    evidence: dict[str, Any] | None = None
-    
-    # Classification
-    cve_id: str | None = None
-    cwe_id: str | None = None
-    owasp_category: str | None = None
-    template_id: str | None = None
-    
-    # Timestamps
-    discovered_at: float = field(default_factory=time.time)
-    
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "title": self.title,
-            "severity": self.severity,
-            "description": self.description,
-            "url": self.url,
-            "plugin_name": self.plugin_name,
-            "phase": self.phase.value,
-            "parameter": self.parameter,
-            "payload": self.payload,
-            "evidence": self.evidence,
-            "cve_id": self.cve_id,
-            "cwe_id": self.cwe_id,
-            "owasp_category": self.owasp_category,
-            "template_id": self.template_id,
-            "discovered_at": self.discovered_at,
-        }
-
-
-@dataclass
 class PluginResult:
     """Final result of plugin execution."""
     
@@ -166,7 +122,7 @@ class PluginResult:
     duration_ms: int
     
     raw_output: str = ""
-    findings: list[VulnerabilityFinding] = field(default_factory=list)
+    findings: list[VulnFinding] = field(default_factory=list)
     parsed_data: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     
@@ -300,14 +256,14 @@ class BasePlugin(ABC):
         yield  # Make this a generator
     
     @abstractmethod
-    def parse_output(self, raw_output: str) -> list[VulnerabilityFinding]:
+    def parse_output(self, raw_output: str) -> list[VulnFinding]:
         """Parse raw tool output into vulnerability findings.
         
         Args:
             raw_output: Raw output from the tool
             
         Returns:
-            List of VulnerabilityFinding objects
+            List of VulnFinding objects
         """
         raise NotImplementedError
     

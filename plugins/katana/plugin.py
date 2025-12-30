@@ -15,12 +15,12 @@ from typing import Any, AsyncGenerator
 from trix.plugins.base import (
     BasePlugin,
     PluginResult,
-    VulnerabilityFinding,
     PluginEvent,
     ScanPhase,
     PluginCapability,
     PluginStatus,
 )
+from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +288,7 @@ class KatanaPlugin(BasePlugin):
                 return {"url": line, "method": "GET"}
             return None
     
-    def parse_output(self, line: str) -> VulnerabilityFinding | None:
+    def parse_output(self, line: str) -> VulnFinding | None:
         """Parse output - katana produces URLs, not vulnerabilities."""
         return None
 

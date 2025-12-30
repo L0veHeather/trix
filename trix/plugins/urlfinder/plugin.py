@@ -14,18 +14,13 @@ import logging
 from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any, AsyncGenerator
-
 from trix.plugins.base import (
     BasePlugin,
     PluginEvent,
     ScanPhase,
     PluginCapability,
-    BasePlugin,
-    PluginEvent,
-    ScanPhase,
-    PluginCapability,
-    VulnerabilityFinding,
 )
+from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 from trix.storage.models import VulnerabilitySeverity
 from trix.engine.event_bus import EventType
 from trix.llm.llm import LLM
@@ -181,14 +176,19 @@ class URLFinderPlugin(BasePlugin):
                             yield PluginEvent(
                                 event_type=PluginEventType.FINDING,
                                 message=f"Sensitive Info: {url}",
-                                data=VulnerabilityFinding(
-                                    title="Potential Sensitive Information Exposed",
-                                    severity=VulnerabilitySeverity.HIGH,
-                                    description=f"URLFinder discovered a potentially sensitive URL: {url}\nContext: {line}",
-                                    url=url,
+                                data=VulnFinding(
+                                    target=url,
+                                    vuln_type="Potential Sensitive Information Exposed",
+                                    payload="URL Discovery",
+                                    raw_request="",
+                                    raw_response=line,
+                                    llm_reasoning=f"URLFinder discovered a potentially sensitive URL: {url}\nContext: {line}",
+                                    confidence_score=0.8,
+                                    confidence_level=ConfidenceLevel.SUSPECTED,
+                                    risk_level=RiskLevel.HIGH,
                                     plugin_name=self.name,
-                                    phase=phase.value,
-                                    evidence=line
+                                    scan_id="", # Assigned by engine
+                                    evidence=[line]
                                 ).to_dict()
                             )
 
@@ -204,13 +204,18 @@ class URLFinderPlugin(BasePlugin):
                 yield PluginEvent(
                     event_type=PluginEventType.FINDING,
                     message=f"AI Inferred API: {api}",
-                    data=VulnerabilityFinding(
-                        title="AI Inferred Hidden API Endpoint",
-                        severity=VulnerabilitySeverity.INFO,
-                        description=f"AI inferred potential API endpoint based on URL patterns: {api}",
-                        url=api,
+                    data=VulnFinding(
+                        target=api,
+                        vuln_type="AI Inferred Hidden API Endpoint",
+                        payload="AI Inference",
+                        raw_request="",
+                        raw_response="",
+                        llm_reasoning=f"AI inferred potential API endpoint based on URL patterns: {api}",
+                        confidence_score=0.6,
+                        confidence_level=ConfidenceLevel.SUSPECTED,
+                        risk_level=RiskLevel.INFO,
                         plugin_name=self.name,
-                        phase=phase.value
+                        scan_id="" # Assigned by engine
                     ).to_dict()
                 )
 
@@ -249,7 +254,7 @@ class URLFinderPlugin(BasePlugin):
         """Update URLFinder."""
         return True, "Manual update required"
 
-    def parse_output(self, raw_output: str) -> list[VulnerabilityFinding]:
+    def parse_output(self, raw_output: str) -> list[VulnFinding]:
         """Parse raw output (not used as we stream events)."""
         return []
     

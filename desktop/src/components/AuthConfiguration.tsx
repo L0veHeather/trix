@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { authApi } from "@/lib/api";
 
 interface AuthProfile {
     name: string;
@@ -47,8 +48,6 @@ export default function AuthConfiguration({ onAuthChange }: AuthConfigurationPro
     const [isPolling, setIsPolling] = useState(false);
     const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-    // API base URL
-    const API_BASE = "/api/login";
 
     // Notify parent of changes
     useEffect(() => {
@@ -118,19 +117,11 @@ export default function AuthConfiguration({ onAuthChange }: AuthConfigurationPro
 
         try {
             setLoginStatus("running");
-            const response = await fetch(`${API_BASE}/start`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    url: loginUrl,
-                    profile_name: profiles[currentProfile]?.name || "default",
-                    headless: true,
-                }),
-            });
+            const data = await authApi.startLogin(
+                loginUrl,
+                profiles[currentProfile]?.name || "default"
+            );
 
-            if (!response.ok) throw new Error("Failed to start browser");
-
-            const data = await response.json();
             setSessionId(data.session_id);
             startScreenshotPolling(data.session_id);
         } catch (error) {
@@ -146,17 +137,14 @@ export default function AuthConfiguration({ onAuthChange }: AuthConfigurationPro
         const poll = async () => {
             try {
                 // Get screenshot
-                const screenshotRes = await fetch(`${API_BASE}/${sid}/screenshot`);
-                if (screenshotRes.ok) {
-                    const data = await screenshotRes.json();
-                    setScreenshot(data.screenshot);
+                const screenshotData = await authApi.getScreenshot(sid);
+                if (screenshotData?.screenshot) {
+                    setScreenshot(screenshotData.screenshot);
                 }
 
                 // Check status
-                const statusRes = await fetch(`${API_BASE}/${sid}/status`);
-                if (statusRes.ok) {
-                    const status = await statusRes.json();
-
+                const status = await authApi.getStatus(sid);
+                if (status) {
                     if (status.status === "success") {
                         setLoginStatus("success");
                         stopPolling();
@@ -187,13 +175,9 @@ export default function AuthConfiguration({ onAuthChange }: AuthConfigurationPro
     // Fetch cookies and apply to profile
     const fetchAndApplyCookies = async (sid: string) => {
         try {
-            const response = await fetch(`${API_BASE}/${sid}/wait?profile_name=${profiles[currentProfile]?.name || "default"}`, {
-                method: "POST",
-            });
+            const data = await authApi.waitForLogin(sid, profiles[currentProfile]?.name || "default");
 
-            if (response.ok) {
-                const data = await response.json();
-
+            if (data) {
                 // Convert cookies array to dict
                 const cookieDict: Record<string, string> = {};
                 (data.cookies || []).forEach((c: { name: string; value: string }) => {
@@ -226,7 +210,7 @@ export default function AuthConfiguration({ onAuthChange }: AuthConfigurationPro
     const cancelBrowserLogin = async () => {
         if (sessionId) {
             try {
-                await fetch(`${API_BASE}/${sessionId}/cancel`, { method: "POST" });
+                await authApi.cancelSession(sessionId);
             } catch (error) {
                 console.error("Cancel failed:", error);
             }

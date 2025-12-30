@@ -15,12 +15,12 @@ from typing import Any, AsyncGenerator
 from trix.plugins.base import (
     BasePlugin,
     PluginResult,
-    VulnerabilityFinding,
     PluginEvent,
     ScanPhase,
     PluginCapability,
     PluginStatus,
 )
+from trix.models.finding import VulnFinding, ConfidenceLevel, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +254,7 @@ class NucleiPlugin(BasePlugin):
                 data={"error": str(e)},
             )
     
-    def parse_output(self, line: str) -> VulnerabilityFinding | None:
+    def parse_output(self, line: str) -> VulnFinding | None:
         """Parse nuclei JSONL output."""
         try:
             data = json.loads(line)
@@ -265,35 +265,44 @@ class NucleiPlugin(BasePlugin):
             
             # Map severity
             severity_map = {
-                "critical": "critical",
-                "high": "high",
-                "medium": "medium",
-                "low": "low",
-                "info": "info",
+                "critical": RiskLevel.CRITICAL,
+                "high": RiskLevel.HIGH,
+                "medium": RiskLevel.MEDIUM,
+                "low": RiskLevel.LOW,
+                "info": RiskLevel.INFO,
             }
-            severity = severity_map.get(
+            risk_level = severity_map.get(
                 info.get("severity", "").lower(),
-                "info"
+                RiskLevel.INFO
             )
             
             # Build finding
-            finding = VulnerabilityFinding(
-                title=info.get("name", data.get("template-id", "Unknown")),
-                severity=severity,
-                description=info.get("description", ""),
-                url=data.get("matched-at", data.get("host", "")),
+            finding = VulnFinding(
+                target=data.get("matched-at", data.get("host", "")),
+                vuln_type=info.get("name", data.get("template-id", "Unknown")),
+                payload=data.get("curl-command", "Template execution"),
+                raw_request="",
+                raw_response="",
+                llm_reasoning=info.get("description", "No description provided"),
+                confidence_score=1.0,
+                confidence_level=ConfidenceLevel.CONFIRMED,
+                risk_level=risk_level,
                 plugin_name=self.name,
-                template_id=data.get("template-id"),
-                cve_id=classification.get("cve-id"),
-                cwe_id=classification.get("cwe-id"),
-                evidence={
-                    "matcher_name": data.get("matcher-name"),
-                    "extracted_results": data.get("extracted-results"),
-                    "curl_command": data.get("curl-command"),
-                    "template_url": info.get("reference", []),
-                    "tags": info.get("tags", []),
-                },
+                scan_id="",
             )
+            # Legacy compatibility fields
+            finding.title = finding.vuln_type
+            finding.severity = risk_level.value
+            finding.description = finding.llm_reasoning
+            finding.url = finding.target
+            finding.template_id = data.get("template-id")
+            finding.cve_id = classification.get("cve-id")
+            finding.cwe_id = classification.get("cwe-id")
+            finding.evidence = [
+                f"Matcher: {data.get('matcher-name')}",
+                f"Extract: {data.get('extracted-results')}",
+                f"Tags: {info.get('tags', [])}"
+            ]
             
             return finding
             
