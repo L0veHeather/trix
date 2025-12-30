@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 from datetime import datetime
 from trix.plugins.base import ScanPhase
-from trix.models.finding import VulnerabilityFinding
+from trix.models.finding import VulnFinding
 
 class PhaseStatus(Enum):
     """Status of a scan phase."""
@@ -33,7 +33,7 @@ class PhaseResult:
     status: PhaseStatus
     duration_ms: int
     plugins_executed: list[str] = field(default_factory=list)
-    findings: list[VulnerabilityFinding] = field(default_factory=list)
+    findings: list[VulnFinding] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     plugin_outputs: dict[str, str] = field(default_factory=dict)
     verification_tasks: list[dict[str, Any]] = field(default_factory=list)
