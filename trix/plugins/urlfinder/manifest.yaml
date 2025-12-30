@@ -1,0 +1,20 @@
+name: urlfinder
+version: 0.1.0
+description: "Passive URL discovery tool (URLFinder-x/URLFinder)"
+author: "N-Next / Pingc0y"
+phases:
+  - reconnaissance
+capabilities:
+  - web_crawling
+  - endpoint_enumeration
+parameters:
+  - name: mode
+    description: "Grabbing mode (1: Normal, 2: Deep, 3: Secure)"
+    type: string
+    default: "2"
+    required: false
+  - name: timeout
+    description: "Timeout in seconds"
+    type: integer
+    default: 10
+    required: false
