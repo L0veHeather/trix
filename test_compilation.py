@@ -15,8 +15,8 @@ try:
     from trix.engine.scan_engine import ScanEngine
     print("OK")
     
-    print("Importing trix.engine.phase_manager...")
-    from trix.engine.phase_manager import PhaseManager
+    print("Importing trix.models.phase...")
+    from trix.models.phase import PhaseConfig, PhaseResult
     print("OK")
     
     print("Importing trix.engine.result_collector...")

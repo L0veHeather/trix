@@ -168,8 +168,20 @@ class TestFullCycle(unittest.IsolatedAsyncioTestCase):
         
         # Start controller context
         async with controller:
+            # Mock the HTTP client to avoid real network requests
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = "<html>Mock response</html>"
+            mock_response.headers = {"Content-Type": "text/html"}
+            mock_response.elapsed = MagicMock()
+            mock_response.elapsed.total_seconds = MagicMock(return_value=0.1)
+            
+            controller._client.request = AsyncMock(return_value=mock_response)
+            controller._client.get = AsyncMock(return_value=mock_response)
+            
             # Create target with single parameter to simplify test
             target = ScanTarget(url="http://test.com/page?id=1", parameters=["id"])
+
             
             # Create mock plugin
             plugin = MockFeedbackPlugin()

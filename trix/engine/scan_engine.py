@@ -1,7 +1,7 @@
 """Scan Engine - Main orchestrator for security scans.
 
 The ScanEngine coordinates all scanning activities:
-- Plugin orchestration through PhaseManager
+- AI-Native plugin orchestration via ScanController
 - Result collection and storage
 - Event distribution
 - Scan lifecycle management
@@ -240,8 +240,7 @@ class ScanEngine:
         # Create result collector
         collector = ResultCollector(scan_id, config.target)
         self._collectors[scan_id] = collector
-        # PhaseManager is no longer used, AI-Native flow handles orchestration via ScanController
-        pass
+        # Dynamic task queue handles all task orchestration
         
         # Initialize dynamic task queue
         task_queue = DynamicTaskQueue()
@@ -410,35 +409,46 @@ class ScanEngine:
                         collector.add_findings(result.findings)
                         collector.mark_phase_completed(result.phase)
                         
-                        # Save to database
-                        db.add_phase_result(
-                            scan_id=scan_id,
-                            phase=result.phase.value,
-                            status=result.status.value,
-                            duration_ms=result.duration_ms,
-                            plugins_executed=result.plugins_executed,
-                            findings_count=len(result.findings),
-                            errors=result.errors,
-                        )
+                        # Save to database with error handling
+                        try:
+                            db.add_phase_result(
+                                scan_id=scan_id,
+                                phase=result.phase.value,
+                                status=result.status.value,
+                                duration_ms=result.duration_ms,
+                                plugins_executed=result.plugins_executed,
+                                findings_count=len(result.findings),
+                                errors=result.errors,
+                            )
+                        except Exception as db_err:
+                            logger.warning(f"Failed to save phase result to database: {db_err}")
                         
                         for finding in result.findings:
-                            db.add_vulnerability(
-                                scan_id=scan_id,
-                                title=getattr(finding, "title", finding.vuln_type),
-                                severity=getattr(finding, "severity", finding.risk_level.value),
-                                description=getattr(finding, "description", finding.llm_reasoning),
-                                url=getattr(finding, "url", finding.target),
-                                plugin_name=finding.plugin_name,
-                                cve_id=getattr(finding, 'cve_id', None),
-                                evidence=getattr(finding, 'evidence', None),
-                                phase=result.phase.value,
-                                # New fields for direct storage
-                                risk_level=finding.risk_level,
-                                confidence_level=finding.confidence_level,
-                                confidence_score=finding.confidence_score,
-                                llm_reasoning=finding.llm_reasoning,
-                                payload=finding.payload,
-                            )
+                            # Convert enum values to strings for database storage
+                            risk_val = finding.risk_level.value if hasattr(finding.risk_level, 'value') else str(finding.risk_level)
+                            conf_val = finding.confidence_level.value if hasattr(finding.confidence_level, 'value') else str(finding.confidence_level)
+                            
+                            try:
+                                db.add_vulnerability(
+                                    scan_id=scan_id,
+                                    title=getattr(finding, "title", finding.vuln_type),
+                                    severity=getattr(finding, "severity", risk_val),
+                                    description=getattr(finding, "description", finding.llm_reasoning),
+                                    url=getattr(finding, "url", finding.target),
+                                    plugin_name=finding.plugin_name,
+                                    cve_id=getattr(finding, 'cve_id', None),
+                                    evidence=getattr(finding, 'evidence', None),
+                                    phase=result.phase.value,
+                                    # New fields for direct storage (as strings)
+                                    risk_level=risk_val,
+                                    confidence_level=conf_val,
+                                    confidence_score=finding.confidence_score,
+                                    llm_reasoning=finding.llm_reasoning,
+                                    payload=finding.payload,
+                                )
+                            except Exception as db_err:
+                                logger.warning(f"Failed to save vulnerability to database: {db_err}")
+
                     
                     # Add newly discovered tasks to queue
                     for new_task in new_tasks:
